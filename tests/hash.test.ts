@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeHash, buildHashInput } from '../src/hash.ts'
+import { computeHash, buildHashInput } from '../src/hash'
 
 describe('buildHashInput', () => {
   it('concatenates fields without separator in the correct order', () => {
