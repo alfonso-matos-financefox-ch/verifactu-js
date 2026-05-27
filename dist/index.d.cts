@@ -1,27 +1,34 @@
-export interface IvaLine {
+interface IvaLine {
     tipoImpositivo: string;
     baseImponible: string;
     cuotaRepercutida: string;
 }
-export interface XmlInput {
+
+interface VerifactuConfig {
     nif: string;
     nombreRazon: string;
     softwareNif: string;
     softwareNombre: string;
     softwareVersion: string;
     softwareId: string;
+}
+interface FiscalInput {
+    config: VerifactuConfig;
     numSerie: string;
-    fecha: string;
-    fechaHora: string;
+    serie: string;
+    fecha: Date;
     numRegistro: number;
-    tipoFactura: string;
-    descripcion: string;
     desgloseIva: IvaLine[];
     cuotaTotal: string;
     importeTotal: string;
     previousHash: string;
-    hash: string;
     esPrimerRegistro: boolean;
 }
-export declare function buildTicketXml(i: XmlInput): string;
-//# sourceMappingURL=xml.d.ts.map
+interface FiscalData {
+    hash: string;
+    xml: string;
+    qrUrl: string;
+}
+declare function buildTicketFiscalData(input: FiscalInput): Promise<FiscalData>;
+
+export { type FiscalData, type FiscalInput, type IvaLine, type VerifactuConfig, buildTicketFiscalData };

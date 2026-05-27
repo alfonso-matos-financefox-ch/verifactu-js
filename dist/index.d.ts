@@ -1,6 +1,10 @@
-import type { IvaLine } from './xml.js';
-export type { IvaLine };
-export interface VerifactuConfig {
+interface IvaLine {
+    tipoImpositivo: string;
+    baseImponible: string;
+    cuotaRepercutida: string;
+}
+
+interface VerifactuConfig {
     nif: string;
     nombreRazon: string;
     softwareNif: string;
@@ -8,7 +12,7 @@ export interface VerifactuConfig {
     softwareVersion: string;
     softwareId: string;
 }
-export interface FiscalInput {
+interface FiscalInput {
     config: VerifactuConfig;
     numSerie: string;
     serie: string;
@@ -20,10 +24,11 @@ export interface FiscalInput {
     previousHash: string;
     esPrimerRegistro: boolean;
 }
-export interface FiscalData {
+interface FiscalData {
     hash: string;
     xml: string;
     qrUrl: string;
 }
-export declare function buildTicketFiscalData(input: FiscalInput): Promise<FiscalData>;
-//# sourceMappingURL=index.d.ts.map
+declare function buildTicketFiscalData(input: FiscalInput): Promise<FiscalData>;
+
+export { type FiscalData, type FiscalInput, type IvaLine, type VerifactuConfig, buildTicketFiscalData };
