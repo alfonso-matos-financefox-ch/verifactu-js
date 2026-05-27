@@ -1,0 +1,1 @@
+{"version":3,"file":"qr.d.ts","sourceRoot":"","sources":["../src/qr.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,OAAO;IACtB,GAAG,EAAE,MAAM,CAAA;IACX,QAAQ,EAAE,MAAM,CAAA;IAChB,KAAK,EAAE,MAAM,CAAA;IACb,YAAY,EAAE,MAAM,CAAA;CACrB;AAID,wBAAgB,UAAU,CAAC,CAAC,EAAE,OAAO,GAAG,MAAM,CAQ7C"}
