@@ -13,7 +13,7 @@
 
 Este diseño añade tres capacidades al repo:
 
-1. **`testMode`** — flag de entorno que cambia el QR URL base y marca el XML como envío de prueba.
+1. **`testMode`** — flag de entorno que cambia el QR URL base (la distinción test/producción en el protocolo SOAP se hace mediante endpoint, no mediante un campo XML).
 2. **`buildBatchFiscalData()`** — helper que encadena hashes de N tickets en una sola llamada.
 3. **Script E2E de nivel 1** — script Node.js que valida el flujo completo sin red.
 
@@ -43,8 +43,8 @@ export interface VerifactuConfig {
 
 | Artefacto | Producción (`testMode: false`) | Test (`testMode: true`) |
 |-----------|-------------------------------|------------------------|
-| `qrUrl` base | `https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR` | URL pre-producción AEAT (**pendiente verificar** — puede ser `https://preweb.aeat.es/wlpl/TEWC-CORE/ValidarQR` u otro path) |
-| XML `<TipoEnvio>` | `A` (Alta en el sistema) | `T` (Test) — **posición en el XML a verificar** contra el RD 1007/2023 Anexo II |
+| `qrUrl` base | `https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR` | `https://prewww2.aeat.es/wlpl/TEWC-CORE/ValidarQR` |
+| XML | Sin cambios | Sin cambios — la distinción test/prod es exclusiva del endpoint SOAP (responsabilidad de la CF) |
 
 ### Cambios en el código
 
@@ -52,7 +52,7 @@ export interface VerifactuConfig {
 
 ```ts
 const AEAT_QR_BASE_PROD = 'https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR'
-const AEAT_QR_BASE_TEST = 'https://preweb.aeat.es/wlpl/TEWC-CORE/ValidarQR'
+const AEAT_QR_BASE_TEST = 'https://prewww2.aeat.es/wlpl/TEWC-CORE/ValidarQR'
 
 export interface QrInput {
   nif: string
@@ -69,18 +69,9 @@ export function buildQrUrl(i: QrInput): string {
 }
 ```
 
-**`src/xml.ts`** — añadir `<TipoEnvio>` en la posición que indique el RD 1007/2023 Anexo II (a verificar antes de implementar — provisional dentro de `<SistemaInformatico>`):
+**`src/xml.ts`** — sin cambios. El XML generado es idéntico en modo test y producción. La distinción test/prod en el protocolo SOAP la gestiona la Cloud Function a través del endpoint al que envía el XML firmado.
 
-```ts
-// XmlInput añade:
-testMode: boolean
-
-// En buildTicketXml, dentro del bloque <SistemaInformatico>:
-<TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu>
-<TipoEnvio>${i.testMode ? 'T' : 'A'}</TipoEnvio>   // ← nuevo
-```
-
-**`src/index.ts`** — propaga `testMode` desde `config` a los módulos internos. Sin cambio de firma en `buildTicketFiscalData` — el flag ya está en `FiscalInput.config`.
+**`src/index.ts`** — propaga `testMode` desde `config` a `qr.ts`. Sin cambio de firma en `buildTicketFiscalData` — el flag ya está en `FiscalInput.config`.
 
 ### Retrocompatibilidad
 
@@ -160,23 +151,23 @@ Usa un NIF/empresa ficticio de prueba (no real). Genera 5 tickets con IVA al 10%
 
 [1/5] A-2026-000001  12.60€
       hash:  a3f2c8d1e5b9f4a2...
-      qrUrl: https://preweb.aeat.es/wlpl/TEWC-CORE/ValidarQR?nif=B12345678&...
+      qrUrl: https://prewww2.aeat.es/wlpl/TEWC-CORE/ValidarQR?nif=B12345678&...
 
 [2/5] A-2026-000002   8.40€
       hash:  7b9e4f2ac3d1e8b5...
-      qrUrl: https://preweb.aeat.es/...
+      qrUrl: https://prewww2.aeat.es/...
 
 ...
 
 [5/5] A-2026-000005  22.10€
       hash:  c1d5a8b3f2e9a4c7...
-      qrUrl: https://preweb.aeat.es/...
+      qrUrl: https://prewww2.aeat.es/...
 
 ✔ Cadena de 5 registros OK.
   lastHash: c1d5a8b3f2e9a4c7...
 
 ▶ XML del registro 1 (lo que se firmaría y enviaría a AEAT SOAP):
-<RegistroFacturacion>...<TipoEnvio>T</TipoEnvio>...</RegistroFacturacion>
+<RegistroFacturacion>...</RegistroFacturacion>
 ```
 
 ### Ejecución
@@ -194,6 +185,18 @@ No se añade al `package.json` como script oficial — es una herramienta de des
 
 Esta sección documenta la responsabilidad de cada capa para que los agentes de TPV y EasyFichi sepan qué construir. `verifactu-js` no implementa nada de esto.
 
+### Endpoints SOAP confirmados (doc AEAT v1.0.3, pág. 45)
+
+| Entorno | URL |
+|---------|-----|
+| Pre-producción (test) | `https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP` |
+| Producción | `https://www1.agenciatributaria.gob.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP` |
+
+### Límites del protocolo SOAP
+
+- **Máximo 1.000 `<RegistroFactura>` por envío.** Si hay más tickets pendientes, la CF divide en múltiples llamadas SOAP.
+- **Rate limiting:** la respuesta SOAP incluye `<TiempoEsperaEnvio>` (segundos). Valor inicial: **60 s** mínimo entre envíos. La CF debe respetar este valor antes de lanzar la siguiente petición.
+
 ### Flujo TPV (offline-first)
 
 ```
@@ -202,9 +205,10 @@ En cada cobro (sin red necesaria):
        → guarda { hash, xml, qrUrl, aeatStatus: 'pending' } en Firestore
 
 Cada ~30 min (Cloud Function scheduled, cuando hay red):
-  CF → lee tpv_tickets con aeatStatus: 'pending'
+  CF → lee tpv_tickets con aeatStatus: 'pending' (máx 1.000 por lote)
      → por cada ticket: firma XML con p12 (node-forge / xml-crypto)
-     → POST SOAP → https://preweb.aeat.es (test) o https://www1.agenciatributaria.gob.es (prod)
+     → POST SOAP → prewww1.aeat.es (test) o www1.agenciatributaria.gob.es (prod)
+     → espera TiempoEsperaEnvio antes del siguiente lote si hay más
      → actualiza aeatStatus: 'ok' | 'error'
      → actualiza tpv_config/main.lastAeatSubmission
 ```
@@ -230,10 +234,10 @@ En cada factura:
 ### Fase 2 — AEAT pre-producción (cuando llegue el p12)
 
 1. Cloud Function configurada con `testMode: true` en `VerifactuConfig`.
-2. El QR generado apunta a `preweb.aeat.es`.
-3. El XML tiene `<TipoEnvio>T</TipoEnvio>`.
-4. SOAP endpoint de pre-producción: **a verificar** en la documentación técnica de la AEAT (WSDL de VeriFACTU).
-5. Verificación: abrir el `qrUrl` en el navegador y confirmar que la AEAT muestra los datos de la factura.
+2. El QR generado apunta a `https://prewww2.aeat.es/...`.
+3. El XML es idéntico al de producción — la distinción test/prod la hace el endpoint SOAP.
+4. SOAP endpoint de pre-producción: `https://prewww1.aeat.es/wlpl/TIKE-CONT/ws/SistemaFacturacion/VerifactuSOAP`.
+5. Verificación: abrir el `qrUrl` en el navegador y confirmar que la AEAT pre-producción muestra los datos de la factura.
 
 ### Fase 3 — Producción (enero 2027)
 
@@ -243,7 +247,7 @@ Cambiar `testMode: false` (o eliminar el flag). Todo lo demás igual.
 
 ## Cambios al versioning
 
-Estos cambios afectan al output del XML (`<TipoEnvio>` nuevo) y al `qrUrl` (base diferente en test). Son cambios de funcionalidad, no del algoritmo de hash ni del formato fiscal obligatorio. **→ v1.1.0** (minor, retrocompatible).
+Estos cambios afectan al `qrUrl` (base diferente en test) y añaden la función `buildBatchFiscalData`. El XML generado es idéntico — no hay cambio fiscal. Son cambios de funcionalidad retrocompatibles. **→ v1.1.0** (minor, retrocompatible).
 
 Los proyectos consumidores actualizan a `#v1.1.0` explícitamente cuando quieran activar `testMode`.
 
@@ -253,7 +257,6 @@ Los proyectos consumidores actualizan a `#v1.1.0` explícitamente cuando quieran
 
 | Fichero | Tests nuevos |
 |---------|-------------|
-| `tests/qr.test.ts` | QR URL en modo test apunta a `preweb.aeat.es` |
-| `tests/xml.test.ts` | XML con `testMode: true` contiene `<TipoEnvio>T</TipoEnvio>` |
-| `tests/xml.test.ts` | XML con `testMode: false` (default) contiene `<TipoEnvio>A</TipoEnvio>` |
+| `tests/qr.test.ts` | QR URL en modo test apunta a `prewww2.aeat.es` |
+| `tests/qr.test.ts` | QR URL en modo prod (default) apunta a `www2.agenciatributaria.gob.es` |
 | `tests/batch.test.ts` | Fichero nuevo — encadenamiento correcto de 3 registros, `lastHash` correcto, `startingHash: ""` activa `esPrimerRegistro` en primer elemento |
