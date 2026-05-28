@@ -10,15 +10,17 @@ async function computeHash(data) {
 }
 
 // src/qr.ts
-var AEAT_QR_BASE = "https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR";
+var AEAT_QR_BASE_PROD = "https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR";
+var AEAT_QR_BASE_TEST = "https://prewww2.aeat.es/wlpl/TEWC-CORE/ValidarQR";
 function buildQrUrl(i) {
+  const base = i.testMode ? AEAT_QR_BASE_TEST : AEAT_QR_BASE_PROD;
   const params = new URLSearchParams({
     nif: i.nif,
     numserie: i.numSerie,
     fecha: i.fecha,
     importe: i.importeTotal
   });
-  return `${AEAT_QR_BASE}?${params.toString()}`;
+  return `${base}?${params.toString()}`;
 }
 
 // src/xml.ts
@@ -89,11 +91,36 @@ async function buildTicketFiscalData(input) {
     nif: input.config.nif,
     numSerie: input.numSerie,
     fecha,
-    importeTotal: input.importeTotal
+    importeTotal: input.importeTotal,
+    testMode: input.config.testMode ?? false
   });
   return { hash, xml, qrUrl };
 }
+async function buildBatchFiscalData(inputs, startingHash) {
+  let currentHash = startingHash;
+  const results = [];
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i];
+    const esPrimerRegistro = currentHash === "" && i === 0;
+    const result = await buildTicketFiscalData({
+      config: input.config,
+      numSerie: input.numSerie,
+      serie: input.serie,
+      fecha: input.fecha,
+      numRegistro: input.numRegistro,
+      desgloseIva: input.desgloseIva,
+      cuotaTotal: input.cuotaTotal,
+      importeTotal: input.importeTotal,
+      previousHash: currentHash,
+      esPrimerRegistro
+    });
+    results.push(result);
+    currentHash = result.hash;
+  }
+  return { results, lastHash: currentHash };
+}
 export {
+  buildBatchFiscalData,
   buildTicketFiscalData
 };
 //# sourceMappingURL=index.js.map
