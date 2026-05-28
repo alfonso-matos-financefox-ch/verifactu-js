@@ -12,6 +12,7 @@ export interface VerifactuConfig {
   softwareNombre: string
   softwareVersion: string
   softwareId: string
+  testMode?: boolean   // default: false
 }
 
 export interface FiscalInput {
@@ -91,6 +92,7 @@ export async function buildTicketFiscalData(input: FiscalInput): Promise<FiscalD
     numSerie: input.numSerie,
     fecha,
     importeTotal: input.importeTotal,
+    testMode: input.config.testMode ?? false,
   })
 
   return { hash, xml, qrUrl }
