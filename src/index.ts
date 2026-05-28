@@ -97,3 +97,39 @@ export async function buildTicketFiscalData(input: FiscalInput): Promise<FiscalD
 
   return { hash, xml, qrUrl }
 }
+
+export type BatchFiscalInput = Omit<FiscalInput, 'previousHash' | 'esPrimerRegistro'>
+
+export interface BatchFiscalResult {
+  results: FiscalData[]
+  lastHash: string
+}
+
+export async function buildBatchFiscalData(
+  inputs: BatchFiscalInput[],
+  startingHash: string,
+): Promise<BatchFiscalResult> {
+  let currentHash = startingHash
+  const results: FiscalData[] = []
+
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i]!
+    const esPrimerRegistro = currentHash === '' && i === 0
+    const result = await buildTicketFiscalData({
+      config: input.config,
+      numSerie: input.numSerie,
+      serie: input.serie,
+      fecha: input.fecha,
+      numRegistro: input.numRegistro,
+      desgloseIva: input.desgloseIva,
+      cuotaTotal: input.cuotaTotal,
+      importeTotal: input.importeTotal,
+      previousHash: currentHash,
+      esPrimerRegistro,
+    })
+    results.push(result)
+    currentHash = result.hash
+  }
+
+  return { results, lastHash: currentHash }
+}
