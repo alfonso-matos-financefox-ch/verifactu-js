@@ -3,16 +3,19 @@ export interface QrInput {
   numSerie: string
   fecha: string        // DD-MM-YYYY
   importeTotal: string // '12.60'
+  testMode: boolean
 }
 
-const AEAT_QR_BASE = 'https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR'
+const AEAT_QR_BASE_PROD = 'https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR'
+const AEAT_QR_BASE_TEST = 'https://prewww2.aeat.es/wlpl/TEWC-CORE/ValidarQR'
 
 export function buildQrUrl(i: QrInput): string {
+  const base = i.testMode ? AEAT_QR_BASE_TEST : AEAT_QR_BASE_PROD
   const params = new URLSearchParams({
     nif: i.nif,
     numserie: i.numSerie,
     fecha: i.fecha,
     importe: i.importeTotal,
   })
-  return `${AEAT_QR_BASE}?${params.toString()}`
+  return `${base}?${params.toString()}`
 }
