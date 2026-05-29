@@ -21,7 +21,8 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var index_exports = {};
 __export(index_exports, {
   buildBatchFiscalData: () => buildBatchFiscalData,
-  buildTicketFiscalData: () => buildTicketFiscalData
+  buildTicketFiscalData: () => buildTicketFiscalData,
+  submit: () => submit
 });
 module.exports = __toCommonJS(index_exports);
 
@@ -146,9 +147,22 @@ async function buildBatchFiscalData(inputs, startingHash) {
   }
   return { results, lastHash: currentHash };
 }
+async function submitMock(_xml, hash) {
+  await new Promise((r) => setTimeout(r, 100 + Math.random() * 300));
+  return { ok: true, csv: hash.slice(0, 16).toUpperCase() };
+}
+async function submitReal(_xml, _config, _hash) {
+  throw new Error(
+    "Real SOAP not yet implemented \u2014 set testMode: true or provide a P12 certificate"
+  );
+}
+async function submit(xml, config, hash) {
+  return config.testMode === true ? submitMock(xml, hash) : submitReal(xml, config, hash);
+}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   buildBatchFiscalData,
-  buildTicketFiscalData
+  buildTicketFiscalData,
+  submit
 });
 //# sourceMappingURL=index.cjs.map
