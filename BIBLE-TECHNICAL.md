@@ -20,16 +20,24 @@
 
 Toda la API se exporta desde `src/index.ts` (único entry point).
 
-### `buildTicketFiscalData(input: FiscalInput): Promise<FiscalData>`
+### Instalación
 
-Función principal. Orquesta hash → XML → QR y devuelve los tres artefactos.
-
-```ts
-import { buildTicketFiscalData } from 'verifactu-js'         // ESM
-const { buildTicketFiscalData } = require('verifactu-js')    // CJS
+```bash
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
 ```
 
-### Tipos de entrada
+```ts
+import { buildTicketFiscalData, buildBatchFiscalData } from 'verifactu-js'  // ESM
+const { buildTicketFiscalData, buildBatchFiscalData } = require('verifactu-js')  // CJS
+```
+
+---
+
+### `buildTicketFiscalData(input: FiscalInput): Promise<FiscalData>`
+
+Genera hash + XML + QR para un único ticket. El caller gestiona `previousHash` y `esPrimerRegistro`.
+
+#### Tipos de entrada
 
 ```ts
 interface VerifactuConfig {
@@ -39,11 +47,12 @@ interface VerifactuConfig {
   softwareNombre: string   // Nombre del software
   softwareVersion: string  // Versión del software
   softwareId: string       // Identificador del software en AEAT
+  testMode?: boolean       // default: false — true apunta el QR a prewww2.aeat.es
 }
 
 interface FiscalInput {
   config: VerifactuConfig
-  numSerie: string          // Número de serie de la factura (ej. "A-2026-000042")
+  numSerie: string          // Número de serie (ej. "A-2026-000042")
   serie: string             // Serie (ej. "A")
   fecha: Date               // Fecha de expedición (Date nativo)
   numRegistro: number       // Número de registro en la cadena (1, 2, 3...)
@@ -61,15 +70,46 @@ interface IvaLine {
 }
 ```
 
-### Tipo de salida
+#### Tipo de salida
 
 ```ts
 interface FiscalData {
   hash: string    // SHA-256 hex 64 chars
   xml: string     // XML RegistroFacturacion completo (string, no DOM)
-  qrUrl: string   // URL portal verificación AEAT
+  qrUrl: string   // URL portal verificación AEAT (prod o pre-prod según testMode)
 }
 ```
+
+---
+
+### `buildBatchFiscalData(inputs, startingHash): Promise<BatchFiscalResult>`
+
+Encadena hashes de N tickets en una sola llamada. Gestiona `previousHash` y `esPrimerRegistro` internamente. Usar cuando el caller procesa varios tickets de golpe (ej. Cloud Function batch del TPV).
+
+```ts
+async function buildBatchFiscalData(
+  inputs: BatchFiscalInput[],  // tickets sin los campos de encadenamiento
+  startingHash: string,        // "" si es el primer batch absoluto; lastHash del batch anterior en caso contrario
+): Promise<BatchFiscalResult>
+```
+
+#### Tipos
+
+```ts
+// BatchFiscalInput = FiscalInput sin previousHash ni esPrimerRegistro
+type BatchFiscalInput = Omit<FiscalInput, 'previousHash' | 'esPrimerRegistro'>
+
+interface BatchFiscalResult {
+  results: FiscalData[]  // un FiscalData por ticket, en el mismo orden que inputs
+  lastHash: string       // hash del último registro — persistir para el próximo batch
+}
+```
+
+#### Invariantes
+
+- El orden de `inputs` determina el orden de la cadena. El caller ordena por fecha/numRegistro.
+- `startingHash: ""` activa `esPrimerRegistro: true` para el primer ticket del primer batch.
+- `inputs` vacío devuelve `{ results: [], lastHash: startingHash }` sin error.
 
 ---
 
@@ -163,13 +203,14 @@ npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
 
 ## 7. Tests
 
-14 tests en `tests/`, agrupados por módulo:
+21 tests en `tests/`, agrupados por módulo:
 
 | Fichero | Cobertura |
 |---------|-----------|
 | `hash.test.ts` | Concatenación correcta de campos, hash SHA-256 determinista y único |
 | `xml.test.ts` | XML generado para primer registro y registros encadenados, desglose IVA, campos del sistema |
-| `qr.test.ts` | URL QR con parámetros correctos |
+| `qr.test.ts` | URL QR con parámetros correctos en modo prod y test (`prewww2.aeat.es`) |
+| `batch.test.ts` | Encadenamiento de 3 registros, `lastHash` correcto, `esPrimerRegistro` con `startingHash: ""`, batch vacío |
 
 ```bash
 npm run test

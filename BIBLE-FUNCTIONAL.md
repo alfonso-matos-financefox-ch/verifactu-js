@@ -25,12 +25,24 @@ Dada la información de una factura, produce tres artefactos:
 |-----------|-------------|
 | `hash` | Cadena hex de 64 caracteres (SHA-256) encadenada con el hash del registro anterior |
 | `xml` | XML `<RegistroFacturacion>` v1.0 listo para firmar y enviar a la AEAT |
-| `qrUrl` | URL de verificación AEAT que incluye NIF, número de serie, fecha e importe |
+| `qrUrl` | URL de verificación AEAT (prod o pre-prod según `testMode`) |
 
 Estos artefactos se almacenan en el ticket/factura y se usan para:
 - Imprimir el QR en el documento físico (papel o pantalla).
 - Enviar el XML firmado a la AEAT cuando esté disponible el certificado .p12.
 - Cumplir el requisito de cadena de hashes auditable.
+
+### Flag `testMode`
+
+`VerifactuConfig.testMode: boolean` (default `false`) controla el entorno:
+
+| | Producción (`false`) | Pre-producción (`true`) |
+|---|---|---|
+| `qrUrl` base | `www2.agenciatributaria.gob.es` | `prewww2.aeat.es` |
+| XML | idéntico | idéntico |
+| SOAP endpoint (CF) | `www1.agenciatributaria.gob.es/…/VerifactuSOAP` | `prewww1.aeat.es/…/VerifactuSOAP` |
+
+El XML no cambia entre entornos. La distinción test/prod en el protocolo SOAP la hace la Cloud Function eligiendo el endpoint correcto.
 
 ---
 
@@ -38,9 +50,9 @@ Estos artefactos se almacenan en el ticket/factura y se usan para:
 
 ### 3.1 TPV de caja (pallaresa-tpv)
 
-Cada cobro genera un ticket simplificado (tipo F2). `issueTicket()` llama a `buildTicketFiscalData()` pasando el hash del ticket anterior almacenado en `tpv_config/main.lastHash`. El resultado se guarda en el documento `tpv_tickets/{id}` junto con el ticket.
+**En cada cobro (offline-first):** `issueTicket()` llama a `buildTicketFiscalData()` pasando el hash del ticket anterior almacenado en `tpv_config/main.lastHash`. El resultado (`hash`, `xml`, `qrUrl`) se guarda en `tpv_tickets/{id}` con `aeatStatus: 'pending'`. La cadena de hashes se actualiza en Firestore dentro de una transacción atómica.
 
-La cadena de hashes vive en Firestore (campo `lastHash`) y se actualiza en cada cobro dentro de una transacción atómica para evitar huecos.
+**En el batch periódico (Cloud Function ~30 min):** la CF usa `buildBatchFiscalData()` si necesita recalcular la cadena para tickets que aún no tienen hash, pasando `tpv_config/main.lastHash` como `startingHash`. Guarda el `lastHash` resultante de vuelta en Firestore. El XML firmado se envía al endpoint SOAP de la AEAT.
 
 ### 3.2 Facturas de EasyFichi
 
