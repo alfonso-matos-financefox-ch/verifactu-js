@@ -19,18 +19,21 @@ describe('submit', () => {
   it('mock mode: returns ok:true with 16-char uppercase hex CSV', async () => {
     const response = await submit(fakeXml, { ...config, testMode: true }, fakeHash)
     expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('Expected ok:true')
     expect(response.csv).toHaveLength(16)
     expect(/^[0-9A-F]+$/.test(response.csv)).toBe(true)
   })
 
   it('mock mode: CSV is the first 16 chars of hash, uppercased', async () => {
     const response = await submit(fakeXml, { ...config, testMode: true }, fakeHash)
+    if (!response.ok) throw new Error('Expected ok:true')
     expect(response.csv).toBe(fakeHash.slice(0, 16).toUpperCase())
   })
 
   it('mock mode: CSV is deterministic — same hash always yields same CSV', async () => {
     const r1 = await submit(fakeXml, { ...config, testMode: true }, fakeHash)
     const r2 = await submit(fakeXml, { ...config, testMode: true }, fakeHash)
+    if (!r1.ok || !r2.ok) throw new Error('Expected ok:true')
     expect(r1.csv).toBe(r2.csv)
   })
 
