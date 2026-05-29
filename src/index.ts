@@ -133,3 +133,38 @@ export async function buildBatchFiscalData(
 
   return { results, lastHash: currentHash }
 }
+
+// ---------------------------------------------------------------------------
+// AEAT submission interface
+// ---------------------------------------------------------------------------
+
+export interface AeatResponse {
+  ok:     boolean
+  csv:    string   // Código Seguro de Verificación (16 hex chars)
+  error?: string   // populated only when ok: false
+}
+
+async function submitMock(_xml: string, hash: string): Promise<AeatResponse> {
+  await new Promise<void>(r => setTimeout(r, 100 + Math.random() * 300))
+  return { ok: true, csv: hash.slice(0, 16).toUpperCase() }
+}
+
+async function submitReal(
+  _xml: string,
+  _config: VerifactuConfig,
+  _hash: string,
+): Promise<AeatResponse> {
+  throw new Error(
+    'Real SOAP not yet implemented — set testMode: true or provide a P12 certificate',
+  )
+}
+
+export async function submit(
+  xml: string,
+  config: VerifactuConfig,
+  hash: string,
+): Promise<AeatResponse> {
+  return config.testMode === true
+    ? submitMock(xml, hash)
+    : submitReal(xml, config, hash)
+}
