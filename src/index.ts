@@ -138,11 +138,9 @@ export async function buildBatchFiscalData(
 // AEAT submission interface
 // ---------------------------------------------------------------------------
 
-export interface AeatResponse {
-  ok:     boolean
-  csv:    string   // Código Seguro de Verificación (16 hex chars)
-  error?: string   // populated only when ok: false
-}
+export type AeatResponse =
+  | { ok: true;  csv: string }   // Código Seguro de Verificación (16 hex chars)
+  | { ok: false; error: string }
 
 async function submitMock(_xml: string, hash: string): Promise<AeatResponse> {
   await new Promise<void>(r => setTimeout(r, 100 + Math.random() * 300))
