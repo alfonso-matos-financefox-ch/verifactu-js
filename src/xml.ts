@@ -25,19 +25,28 @@ export interface XmlInput {
   esPrimerRegistro: boolean
 }
 
+function escapeXml(s: string): string {
+  return s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;')
+}
+
 function encadenamiento(i: XmlInput): string {
   if (i.esPrimerRegistro) {
     return `<Encadenamiento><PrimerRegistro>S</PrimerRegistro></Encadenamiento>`
   }
-  return `<Encadenamiento><PrimerRegistro>N</PrimerRegistro><RegistroAnterior><IDEmisorFactura>${i.nif}</IDEmisorFactura><NumSerieFactura>${i.numSerie}</NumSerieFactura><FechaExpedicionFactura>${i.fecha}</FechaExpedicionFactura><Huella>${i.previousHash}</Huella></RegistroAnterior></Encadenamiento>`
+  return `<Encadenamiento><PrimerRegistro>N</PrimerRegistro><RegistroAnterior><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura><Huella>${escapeXml(i.previousHash)}</Huella></RegistroAnterior></Encadenamiento>`
 }
 
 function desgloseIvaXml(lines: IvaLine[]): string {
   return lines.map(l =>
-    `<DetalleIVA><TipoImpositivo>${l.tipoImpositivo}</TipoImpositivo><BaseImponibleOimporteNoSujeto>${l.baseImponible}</BaseImponibleOimporteNoSujeto><CuotaRepercutida>${l.cuotaRepercutida}</CuotaRepercutida></DetalleIVA>`
+    `<DetalleIVA><TipoImpositivo>${escapeXml(l.tipoImpositivo)}</TipoImpositivo><BaseImponibleOimporteNoSujeto>${escapeXml(l.baseImponible)}</BaseImponibleOimporteNoSujeto><CuotaRepercutida>${escapeXml(l.cuotaRepercutida)}</CuotaRepercutida></DetalleIVA>`
   ).join('')
 }
 
 export function buildTicketXml(i: XmlInput): string {
-  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${i.nif}</IDEmisorFactura><NumSerieFactura>${i.numSerie}</NumSerieFactura><FechaExpedicionFactura>${i.fecha}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${i.nombreRazon}</NombreRazonEmisor><TipoFactura>${i.tipoFactura}</TipoFactura><DescripcionOperacion>${i.descripcion}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${i.cuotaTotal}</CuotaTotal><ImporteTotal>${i.importeTotal}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${i.softwareNombre}</NombreRazon><NIF>${i.softwareNif}</NIF><NombreSistemaInformatico>${i.softwareNombre}</NombreSistemaInformatico><IdSistemaInformatico>${i.softwareId}</IdSistemaInformatico><Version>${i.softwareVersion}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${i.fechaHora}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${i.hash}</HuellaRegistro></RegistroFacturacion>`
+  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor><TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura><DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${escapeXml(i.softwareNombre)}</NombreRazon><NIF>${escapeXml(i.softwareNif)}</NIF><NombreSistemaInformatico>${escapeXml(i.softwareNombre)}</NombreSistemaInformatico><IdSistemaInformatico>${escapeXml(i.softwareId)}</IdSistemaInformatico><Version>${escapeXml(i.softwareVersion)}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${escapeXml(i.fechaHora)}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${escapeXml(i.hash)}</HuellaRegistro></RegistroFacturacion>`
 }

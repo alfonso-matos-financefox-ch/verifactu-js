@@ -23,7 +23,7 @@ Toda la API se exporta desde `src/index.ts` (único entry point).
 ### Instalación
 
 ```bash
-npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.3.0
 ```
 
 ```ts
@@ -123,7 +123,9 @@ src/
   qr.ts      — buildQrUrl(), tipo QrInput
 ```
 
-Cada módulo es independiente: `xml.ts` y `qr.ts` son funciones puras síncronas. Solo `hash.ts` es async (por `crypto.subtle`). `index.ts` los compone y expone únicamente `buildTicketFiscalData`.
+Cada módulo es independiente: `xml.ts` y `qr.ts` son funciones puras síncronas. Solo `hash.ts` es async (por `crypto.subtle`). `index.ts` los compone y expone la API pública.
+
+**La librería no contiene lógica de envío AEAT.** No hay `submit()`, `submitMock()`, ni cliente SOAP. El envío es responsabilidad del sistema integrador.
 
 Los tipos internos (`XmlInput`, `HashInput`, `QrInput`) no se exportan — solo `FiscalInput`, `FiscalData`, `VerifactuConfig` e `IvaLine` son parte de la API pública.
 
@@ -203,14 +205,16 @@ npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
 
 ## 7. Tests
 
-21 tests en `tests/`, agrupados por módulo:
+Tests en `tests/`, agrupados por módulo:
 
 | Fichero | Cobertura |
 |---------|-----------|
 | `hash.test.ts` | Concatenación correcta de campos, hash SHA-256 determinista y único |
-| `xml.test.ts` | XML generado para primer registro y registros encadenados, desglose IVA, campos del sistema |
+| `xml.test.ts` | XML generado para primer registro y registros encadenados, desglose IVA, campos del sistema, escape de caracteres especiales (`&`, `<`, `>`) |
 | `qr.test.ts` | URL QR con parámetros correctos en modo prod y test (`prewww2.aeat.es`) |
-| `batch.test.ts` | Encadenamiento de 3 registros, `lastHash` correcto, `esPrimerRegistro` con `startingHash: ""`, batch vacío |
+| `batch.test.ts` | Encadenamiento de registros, `lastHash` correcto, `esPrimerRegistro` con `startingHash: ""`, batch vacío |
+| `chain.test.ts` | Validación de invariantes de cadena: combinaciones inválidas de `esPrimerRegistro`/`previousHash` lanzan error; campo `serie` no afecta a hash/xml/qrUrl |
+| `golden.test.ts` | Golden master: input fijo → hash, qrUrl y estructura XML exactos. Cualquier cambio que rompa estos tests es un cambio fiscal. |
 
 ```bash
 npm run test
@@ -227,7 +231,7 @@ Cuando se modifique la librería:
 ```bash
 # 1. Hacer cambios en src/
 # 2. Actualizar tests
-npm run test       # verificar 14/14
+npm run test       # todos deben pasar — prestar atención a golden.test.ts
 
 # 3. Rebuild
 npm run build      # regenera dist/
@@ -237,13 +241,13 @@ git add src/ tests/ dist/ package.json
 git commit -m "feat/fix: descripción"
 
 # 5. Nuevo tag semántico
-git tag v1.2.0
-git push origin main && git push origin v1.2.0
+git tag v1.3.x
+git push origin main && git push origin v1.3.x
 
 # 6. Actualizar el tag en los proyectos consumidores
 # En pallaresa-tpv/package.json:
-# "verifactu-js": "github:alfonso-matos-financefox-ch/verifactu-js#v1.2.0"
-# npm install github:...#v1.2.0
+# "verifactu-js": "github:alfonso-matos-financefox-ch/verifactu-js#v1.3.x"
+# npm install
 ```
 
 **Nunca apuntar a `#main`** — las actualizaciones de una librería fiscal deben ser explícitas e intencionales.
@@ -263,3 +267,15 @@ Usar template literals para generar el XML evita dependencias en `xmlbuilder2`, 
 
 ### `esPrimerRegistro` explícito
 En lugar de inferir si es el primer registro comprobando `previousHash === ""`, se exige el flag explícito. Esto previene que un hash vacío por error (bug en el integrador) sea tratado silenciosamente como primer registro de la cadena.
+
+`buildTicketFiscalData` valida la combinación al inicio: `esPrimerRegistro=true` con `previousHash` no vacío lanza error; `esPrimerRegistro=false` con `previousHash` vacío también. `previousHash` no vacío que no sea hex de 64 caracteres también lanza error.
+
+### Campo `serie` — metadata del caller
+`FiscalInput.serie: string` está presente como metadata del caller pero **no afecta a hash, XML ni qrUrl**. El identificador fiscal real es `numSerie`. La librería lo recibe para que el caller pueda pasarlo sin transformar su propio modelo de datos, pero no lo usa internamente. No se incluirá en operaciones fiscales. Candidato a eliminar en v2.
+
+### Timezone del runtime
+`buildTicketFiscalData` recibe `fecha: Date` y formatea internamente la fecha fiscal (`DD-MM-YYYY`) y la marca temporal (`ISO con offset`) usando las funciones locales del runtime (`getDate()`, `getTimezoneOffset()`).
+
+**Política:** la fecha fiscal se calcula en la timezone del runtime. En Cloud Functions configurar `TZ=Europe/Madrid` para garantizar que la fecha local española es correcta. Si el `Date` llega construido desde una string ISO con offset explícito (ej. `new Date('2026-01-01T10:00:00+01:00')`), la fecha fiscal será siempre correcta independientemente del TZ del runtime.
+
+Los tests golden usan `new Date(2026, 0, 1, 12, 0, 0)` (mediodía en hora local) para evitar desfases por el límite de medianoche. `FechaHoraHusoHorarioSistema` en el XML sí depende del timezone del runtime — no es parte de los asserts exactos de golden.test.ts.

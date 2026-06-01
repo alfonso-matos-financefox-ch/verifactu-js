@@ -70,4 +70,15 @@ describe('buildTicketXml', () => {
     expect(xml).toContain('<ImporteTotal>11.55</ImporteTotal>')
     expect(xml).toContain('<CuotaTotal>1.05</CuotaTotal>')
   })
+
+  it('escapes & in nombreRazon', () => {
+    const xml = buildTicketXml({ ...baseInput, nombreRazon: 'Bar & Cafè S.L.' })
+    expect(xml).toContain('<NombreRazonEmisor>Bar &amp; Cafè S.L.</NombreRazonEmisor>')
+    expect(xml).not.toContain('<NombreRazonEmisor>Bar & Cafè S.L.</NombreRazonEmisor>')
+  })
+
+  it('escapes < and > in descripcion', () => {
+    const xml = buildTicketXml({ ...baseInput, descripcion: 'Menú < 10€ > estiu' })
+    expect(xml).toContain('<DescripcionOperacion>Menú &lt; 10€ &gt; estiu</DescripcionOperacion>')
+  })
 })

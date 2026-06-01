@@ -32,6 +32,8 @@ Estos artefactos se almacenan en el ticket/factura y se usan para:
 - Enviar el XML firmado a la AEAT cuando esté disponible el certificado .p12.
 - Cumplir el requisito de cadena de hashes auditable.
 
+**La librería NO envía nada a la AEAT.** No hay función `submit()`, no hay cliente SOAP, no hay mock de envío. El envío es responsabilidad del sistema integrador (Cloud Function en el caso de `pallaresa-tpv`).
+
 ### Flag `testMode`
 
 `VerifactuConfig.testMode: boolean` (default `false`) controla el entorno:
@@ -73,7 +75,8 @@ La cadena de hashes de EasyFichi es **independiente** de la cadena del TPV — s
 ### Lo que NO cubre
 - Facturas completas tipo F1 (con datos del destinatario) — extensión futura.
 - Firma XML con certificado .p12 — responsabilidad de la Cloud Function integradora.
-- Comunicación SOAP con los endpoints de la AEAT — ídem.
+- Comunicación SOAP con los endpoints de la AEAT — ídem. No hay `submit()`.
+- Mock de envío AEAT — el integrador implementa su propio mock si lo necesita.
 - Rectificativas (tipo R1–R5) — no implementadas.
 - Validación de NIF/CIF — la librería confía en que los datos de entrada son correctos.
 

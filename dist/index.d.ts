@@ -37,13 +37,5 @@ interface BatchFiscalResult {
     lastHash: string;
 }
 declare function buildBatchFiscalData(inputs: BatchFiscalInput[], startingHash: string): Promise<BatchFiscalResult>;
-type AeatResponse = {
-    ok: true;
-    csv: string;
-} | {
-    ok: false;
-    error: string;
-};
-declare function submit(xml: string, config: VerifactuConfig, hash: string): Promise<AeatResponse>;
 
-export { type AeatResponse, type BatchFiscalInput, type BatchFiscalResult, type FiscalData, type FiscalInput, type IvaLine, type VerifactuConfig, buildBatchFiscalData, buildTicketFiscalData, submit };
+export { type BatchFiscalInput, type BatchFiscalResult, type FiscalData, type FiscalInput, type IvaLine, type VerifactuConfig, buildBatchFiscalData, buildTicketFiscalData };

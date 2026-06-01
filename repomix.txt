@@ -1,0 +1,1183 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: src/**, tests/**, *.md, package.json, tsconfig.json, tsup.config.ts
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+src/
+  hash.ts
+  index.ts
+  qr.ts
+  xml.ts
+tests/
+  batch.test.ts
+  hash.test.ts
+  qr.test.ts
+  submit.test.ts
+  xml.test.ts
+BIBLE-FUNCTIONAL.md
+BIBLE-TECHNICAL.md
+package.json
+README.md
+tsconfig.json
+tsup.config.ts
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="tests/batch.test.ts">
+import { describe, it, expect } from 'vitest'
+import { buildBatchFiscalData } from '../src/index'
+import type { BatchFiscalInput, VerifactuConfig } from '../src/index'
+
+const config: VerifactuConfig = {
+  nif: 'B12345678',
+  nombreRazon: 'Test Restauració S.L.',
+  softwareNif: '00000000T',
+  softwareNombre: 'test-sw',
+  softwareVersion: '1.0',
+  softwareId: 'TEST-001',
+}
+
+const ticket1: BatchFiscalInput = {
+  config,
+  numSerie: 'A-2026-000001',
+  serie: 'A',
+  fecha: new Date('2026-01-01T10:00:00'),
+  numRegistro: 1,
+  desgloseIva: [{ tipoImpositivo: '10', baseImponible: '11.45', cuotaRepercutida: '1.15' }],
+  cuotaTotal: '1.15',
+  importeTotal: '12.60',
+}
+
+const ticket2: BatchFiscalInput = {
+  config,
+  numSerie: 'A-2026-000002',
+  serie: 'A',
+  fecha: new Date('2026-01-01T11:00:00'),
+  numRegistro: 2,
+  desgloseIva: [{ tipoImpositivo: '10', baseImponible: '7.64', cuotaRepercutida: '0.76' }],
+  cuotaTotal: '0.76',
+  importeTotal: '8.40',
+}
+
+const ticket3: BatchFiscalInput = {
+  config,
+  numSerie: 'A-2026-000003',
+  serie: 'A',
+  fecha: new Date('2026-01-01T12:00:00'),
+  numRegistro: 3,
+  desgloseIva: [{ tipoImpositivo: '10', baseImponible: '20.09', cuotaRepercutida: '2.01' }],
+  cuotaTotal: '2.01',
+  importeTotal: '22.10',
+}
+
+describe('buildBatchFiscalData', () => {
+  it('returns empty results with unchanged lastHash when inputs is empty', async () => {
+    const result = await buildBatchFiscalData([], 'a'.repeat(64))
+    expect(result.results).toHaveLength(0)
+    expect(result.lastHash).toBe('a'.repeat(64))
+  })
+
+  it('returns empty results with unchanged empty startingHash when inputs is empty', async () => {
+    const result = await buildBatchFiscalData([], '')
+    expect(result.results).toHaveLength(0)
+    expect(result.lastHash).toBe('')
+  })
+
+  it('marks first ticket as primer registro when startingHash is empty string', async () => {
+    const result = await buildBatchFiscalData([ticket1], '')
+    expect(result.results[0]!.xml).toContain('<PrimerRegistro>S</PrimerRegistro>')
+  })
+
+  it('does not mark first ticket as primer registro when startingHash is non-empty', async () => {
+    const prevHash = 'b'.repeat(64)
+    const result = await buildBatchFiscalData([ticket1], prevHash)
+    expect(result.results[0]!.xml).toContain('<PrimerRegistro>N</PrimerRegistro>')
+    expect(result.results[0]!.xml).toContain(`<Huella>${prevHash}</Huella>`)
+  })
+
+  it('chains hashes correctly across 3 tickets and sets lastHash to last result hash', async () => {
+    const result = await buildBatchFiscalData([ticket1, ticket2, ticket3], '')
+
+    expect(result.results).toHaveLength(3)
+    expect(result.lastHash).toBe(result.results[2]!.hash)
+    // ticket 2 references ticket 1's hash
+    expect(result.results[1]!.xml).toContain(`<Huella>${result.results[0]!.hash}</Huella>`)
+    // ticket 3 references ticket 2's hash
+    expect(result.results[2]!.xml).toContain(`<Huella>${result.results[1]!.hash}</Huella>`)
+  })
+})
+</file>
+
+<file path="README.md">
+# verifactu-js
+
+Generación de datos fiscales VERI\*FACTU para software de facturación español (Real Decreto 1007/2023).
+
+Produce hash SHA-256 encadenado + XML `RegistroFacturacion` + URL QR de verificación AEAT para cada factura emitida.
+
+**Alcance:** facturas simplificadas F2 (tickets de caja). No incluye firma .p12 ni envío SOAP — eso es responsabilidad de la Cloud Function integradora.
+
+---
+
+## Instalación
+
+```bash
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
+```
+
+Requiere acceso al repo privado (SSH o token configurado en la máquina).
+
+## Uso
+
+```ts
+import { buildTicketFiscalData } from 'verifactu-js'         // ESM
+const { buildTicketFiscalData } = require('verifactu-js')    // CJS (Node)
+
+const { hash, xml, qrUrl } = await buildTicketFiscalData({
+  config: {
+    nif: 'B62215389',
+    nombreRazon: 'GRANJA I XOCOLATERIA LA PALLARESA, S.L.',
+    softwareNif: 'B12345678',
+    softwareNombre: 'MiTPV',
+    softwareVersion: '1.0',
+    softwareId: 'MITPV',
+  },
+  numSerie: 'A-2026-000042',
+  serie: 'A',
+  fecha: new Date(),
+  numRegistro: 42,
+  desgloseIva: [
+    { tipoImpositivo: '10', baseImponible: '11.55', cuotaRepercutida: '1.05' },
+  ],
+  cuotaTotal: '1.05',
+  importeTotal: '12.60',
+  previousHash: '<hash del ticket anterior, o "" si es el primero>',
+  esPrimerRegistro: false,
+})
+```
+
+## Documentación
+
+- [BIBLE-FUNCTIONAL.md](BIBLE-FUNCTIONAL.md) — contexto legal, casos de uso, alcance, formatos de datos
+- [BIBLE-TECHNICAL.md](BIBLE-TECHNICAL.md) — API completa, arquitectura, build, tests, proceso de actualización
+
+## Tests
+
+```bash
+npm run test    # 14 tests
+```
+
+## Actualizar en proyectos consumidores
+
+```bash
+# En package.json del consumidor:
+# "verifactu-js": "github:alfonso-matos-financefox-ch/verifactu-js#vX.Y.Z"
+npm install github:alfonso-matos-financefox-ch/verifactu-js#vX.Y.Z
+```
+
+Nunca apuntar a `#main` — los cambios en una librería fiscal deben ser explícitos.
+</file>
+
+<file path="tsup.config.ts">
+import { defineConfig } from 'tsup'
+
+export default defineConfig({
+  entry: ['src/index.ts'],
+  format: ['esm', 'cjs'],
+  dts: true,
+  clean: true,
+  sourcemap: true,
+})
+</file>
+
+<file path="src/hash.ts">
+export interface HashInput {
+  nif: string
+  numSerie: string
+  fecha: string        // DD-MM-YYYY
+  tipoFactura: string  // 'F2' for simplified invoices
+  cuotaTotal: string   // '1.05' — 2 decimals, dot separator
+  importeTotal: string // '12.60' — 2 decimals, dot separator
+  previousHash: string // '' for the first ticket
+}
+
+export function buildHashInput(i: HashInput): string {
+  return (
+    `IDEmisorFactura=${i.nif}` +
+    `NumSerieFactura=${i.numSerie}` +
+    `FechaExpedicionFactura=${i.fecha}` +
+    `TipoFactura=${i.tipoFactura}` +
+    `CuotaTotalFactura=${i.cuotaTotal}` +
+    `ImporteTotal=${i.importeTotal}` +
+    `Encadenamiento=${i.previousHash}`
+  )
+}
+
+export async function computeHash(data: string): Promise<string> {
+  const encoded = new TextEncoder().encode(data)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
+</file>
+
+<file path="tests/submit.test.ts">
+// tests/submit.test.ts
+import { describe, it, expect } from 'vitest'
+import { submit } from '../src/index'
+import type { VerifactuConfig } from '../src/index'
+
+const config: VerifactuConfig = {
+  nif:             'B12345678',
+  nombreRazon:     'Test Restauració S.L.',
+  softwareNif:     '00000000T',
+  softwareNombre:  'test-sw',
+  softwareVersion: '1.0',
+  softwareId:      'TEST-001',
+}
+
+const fakeXml  = '<RegistroFacturacion/>'
+const fakeHash = 'a3f8c1e2d4b7f90e1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4'
+
+describe('submit', () => {
+  it('mock mode: returns ok:true with 16-char uppercase hex CSV', async () => {
+    const response = await submit(fakeXml, { ...config, testMode: true }, fakeHash)
+    expect(response.ok).toBe(true)
+    if (!response.ok) throw new Error('Expected ok:true')
+    expect(response.csv).toHaveLength(16)
+    expect(/^[0-9A-F]+$/.test(response.csv)).toBe(true)
+  })
+
+  it('mock mode: CSV is the first 16 chars of hash, uppercased', async () => {
+    const response = await submit(fakeXml, { ...config, testMode: true }, fakeHash)
+    if (!response.ok) throw new Error('Expected ok:true')
+    expect(response.csv).toBe(fakeHash.slice(0, 16).toUpperCase())
+  })
+
+  it('mock mode: CSV is deterministic — same hash always yields same CSV', async () => {
+    const r1 = await submit(fakeXml, { ...config, testMode: true }, fakeHash)
+    const r2 = await submit(fakeXml, { ...config, testMode: true }, fakeHash)
+    if (!r1.ok || !r2.ok) throw new Error('Expected ok:true')
+    expect(r1.csv).toBe(r2.csv)
+  })
+
+  it('real mode: rejects with placeholder message', async () => {
+    await expect(submit(fakeXml, { ...config, testMode: false }, fakeHash))
+      .rejects.toThrow('Real SOAP not yet implemented')
+  })
+})
+</file>
+
+<file path="BIBLE-FUNCTIONAL.md">
+# BIBLE-FUNCTIONAL — verifactu-js
+
+> Documento de referencia funcional. Describe QUÉ hace la librería, para quién y con qué reglas de negocio. No contiene código. Destino: desarrolladores que integren o mantengan la librería.
+
+---
+
+## 1. Contexto legal
+
+**Real Decreto 1007/2023** (Reglamento Veri*Factu) obliga a los sistemas informáticos de facturación españoles a generar un registro verificable por la AEAT para cada factura emitida. El mecanismo se llama **VERI*FACTU** y consiste en:
+
+1. Calcular un hash SHA-256 encadenado con el registro anterior (cadena de bloques simplificada).
+2. Generar un XML `RegistroFacturacion` con los datos fiscales y el hash.
+3. Incluir un QR en el documento impreso que enlaza al portal de verificación de la AEAT.
+4. (Opcional en la fase actual) Enviar el XML firmado a la AEAT vía SOAP.
+
+`verifactu-js` implementa los pasos 1, 2 y 3. El paso 4 (envío SOAP con certificado .p12) queda fuera del alcance de esta librería y es responsabilidad de la Cloud Function del sistema que la integre.
+
+---
+
+## 2. Qué hace esta librería
+
+Dada la información de una factura, produce tres artefactos:
+
+| Artefacto | Descripción |
+|-----------|-------------|
+| `hash` | Cadena hex de 64 caracteres (SHA-256) encadenada con el hash del registro anterior |
+| `xml` | XML `<RegistroFacturacion>` v1.0 listo para firmar y enviar a la AEAT |
+| `qrUrl` | URL de verificación AEAT (prod o pre-prod según `testMode`) |
+
+Estos artefactos se almacenan en el ticket/factura y se usan para:
+- Imprimir el QR en el documento físico (papel o pantalla).
+- Enviar el XML firmado a la AEAT cuando esté disponible el certificado .p12.
+- Cumplir el requisito de cadena de hashes auditable.
+
+### Flag `testMode`
+
+`VerifactuConfig.testMode: boolean` (default `false`) controla el entorno:
+
+| | Producción (`false`) | Pre-producción (`true`) |
+|---|---|---|
+| `qrUrl` base | `www2.agenciatributaria.gob.es` | `prewww2.aeat.es` |
+| XML | idéntico | idéntico |
+| SOAP endpoint (CF) | `www1.agenciatributaria.gob.es/…/VerifactuSOAP` | `prewww1.aeat.es/…/VerifactuSOAP` |
+
+El XML no cambia entre entornos. La distinción test/prod en el protocolo SOAP la hace la Cloud Function eligiendo el endpoint correcto.
+
+---
+
+## 3. Casos de uso
+
+### 3.1 TPV de caja (pallaresa-tpv)
+
+**En cada cobro (offline-first):** `issueTicket()` llama a `buildTicketFiscalData()` pasando el hash del ticket anterior almacenado en `tpv_config/main.lastHash`. El resultado (`hash`, `xml`, `qrUrl`) se guarda en `tpv_tickets/{id}` con `aeatStatus: 'pending'`. La cadena de hashes se actualiza en Firestore dentro de una transacción atómica.
+
+**En el batch periódico (Cloud Function ~30 min):** la CF usa `buildBatchFiscalData()` si necesita recalcular la cadena para tickets que aún no tienen hash, pasando `tpv_config/main.lastHash` como `startingHash`. Guarda el `lastHash` resultante de vuelta en Firestore. El XML firmado se envía al endpoint SOAP de la AEAT.
+
+### 3.2 Facturas de EasyFichi
+
+Las facturas emitidas desde EasyFichi son facturas completas pero también pueden ser tipo F2 si son al consumidor final. La Cloud Function de facturación llama a `buildTicketFiscalData()` en Node.js usando el módulo CJS (`require('verifactu-js')`).
+
+La cadena de hashes de EasyFichi es **independiente** de la cadena del TPV — son dos sistemas de facturación distintos con sus propias series.
+
+---
+
+## 4. Alcance y limitaciones
+
+### Lo que cubre
+- Facturas simplificadas tipo **F2** (tickets de caja, facturas sin datos del destinatario).
+- Cadena hash SHA-256 con la concatenación exacta exigida por el RD 1007/2023.
+- XML `RegistroFacturacion` versión 1.0.
+- URL QR del portal de verificación de la AEAT.
+
+### Lo que NO cubre
+- Facturas completas tipo F1 (con datos del destinatario) — extensión futura.
+- Firma XML con certificado .p12 — responsabilidad de la Cloud Function integradora.
+- Comunicación SOAP con los endpoints de la AEAT — ídem.
+- Rectificativas (tipo R1–R5) — no implementadas.
+- Validación de NIF/CIF — la librería confía en que los datos de entrada son correctos.
+
+---
+
+## 5. Política de versioning
+
+Los cambios en el algoritmo de hash o en el formato XML son **cambios fiscales** y deben tratarse con la máxima precaución:
+
+- Cualquier cambio que afecte al output del hash o del XML implica una versión mayor (`v2.0.0`).
+- Los sistemas integradores deben actualizar el tag explícitamente (`#v2.0.0`) — nunca usar `main` ni un rango semver automático.
+- Antes de actualizar en producción: verificar que los hashes generados con la nueva versión son aceptados por el validador de la AEAT.
+
+---
+
+## 6. Formatos de datos de entrada
+
+| Campo | Formato | Ejemplo |
+|-------|---------|---------|
+| `fecha` | Calculado internamente desde `Date` | — |
+| `cuotaTotal` | String decimal, separador punto, 2 decimales | `"1.05"` |
+| `importeTotal` | String decimal, separador punto, 2 decimales | `"12.60"` |
+| `desgloseIva[].tipoImpositivo` | String porcentaje sin símbolo | `"10"` |
+| `desgloseIva[].baseImponible` | String decimal, 2 decimales | `"11.55"` |
+| `desgloseIva[].cuotaRepercutida` | String decimal, 2 decimales | `"1.05"` |
+| `previousHash` | Hex 64 chars del registro anterior, o `""` si es el primero | `"a3f2..."` o `""` |
+| `esPrimerRegistro` | `true` solo para el primer registro de la cadena | `false` |
+
+**Importante:** los importes son strings, no numbers, para evitar errores de redondeo flotante. El sistema integrador es responsable de formatearlos correctamente antes de llamar a la librería.
+</file>
+
+<file path="BIBLE-TECHNICAL.md">
+# BIBLE-TECHNICAL — verifactu-js
+
+> Documento de referencia técnico. Arquitectura, API pública, decisiones de diseño e invariantes. Destino: desarrolladores que mantengan o extiendan la librería.
+
+---
+
+## 1. Stack y entornos
+
+| Aspecto | Valor |
+|---------|-------|
+| Lenguaje | TypeScript 5.x, `strict: true` |
+| Build | `tsup` (esbuild) — dual ESM + CJS |
+| Tests | Vitest 1.x, `environment: node` |
+| Runtime mínimo | Node 18+ (usa `globalThis.crypto.subtle`) / cualquier browser moderno |
+| Sin dependencias runtime | cero dependencias en `dependencies` |
+
+---
+
+## 2. API pública
+
+Toda la API se exporta desde `src/index.ts` (único entry point).
+
+### Instalación
+
+```bash
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
+```
+
+```ts
+import { buildTicketFiscalData, buildBatchFiscalData } from 'verifactu-js'  // ESM
+const { buildTicketFiscalData, buildBatchFiscalData } = require('verifactu-js')  // CJS
+```
+
+---
+
+### `buildTicketFiscalData(input: FiscalInput): Promise<FiscalData>`
+
+Genera hash + XML + QR para un único ticket. El caller gestiona `previousHash` y `esPrimerRegistro`.
+
+#### Tipos de entrada
+
+```ts
+interface VerifactuConfig {
+  nif: string              // NIF del emisor (la empresa)
+  nombreRazon: string      // Razón social del emisor
+  softwareNif: string      // NIF del fabricante del software
+  softwareNombre: string   // Nombre del software
+  softwareVersion: string  // Versión del software
+  softwareId: string       // Identificador del software en AEAT
+  testMode?: boolean       // default: false — true apunta el QR a prewww2.aeat.es
+}
+
+interface FiscalInput {
+  config: VerifactuConfig
+  numSerie: string          // Número de serie (ej. "A-2026-000042")
+  serie: string             // Serie (ej. "A")
+  fecha: Date               // Fecha de expedición (Date nativo)
+  numRegistro: number       // Número de registro en la cadena (1, 2, 3...)
+  desgloseIva: IvaLine[]    // Líneas de IVA
+  cuotaTotal: string        // Total cuota IVA ("1.05")
+  importeTotal: string      // Total factura ("12.60")
+  previousHash: string      // Hash del registro anterior ("" si es el primero)
+  esPrimerRegistro: boolean // true solo para el primer registro de la cadena
+}
+
+interface IvaLine {
+  tipoImpositivo: string      // Porcentaje sin símbolo ("10", "21")
+  baseImponible: string       // Base imponible ("11.55")
+  cuotaRepercutida: string    // Cuota IVA ("1.05")
+}
+```
+
+#### Tipo de salida
+
+```ts
+interface FiscalData {
+  hash: string    // SHA-256 hex 64 chars
+  xml: string     // XML RegistroFacturacion completo (string, no DOM)
+  qrUrl: string   // URL portal verificación AEAT (prod o pre-prod según testMode)
+}
+```
+
+---
+
+### `buildBatchFiscalData(inputs, startingHash): Promise<BatchFiscalResult>`
+
+Encadena hashes de N tickets en una sola llamada. Gestiona `previousHash` y `esPrimerRegistro` internamente. Usar cuando el caller procesa varios tickets de golpe (ej. Cloud Function batch del TPV).
+
+```ts
+async function buildBatchFiscalData(
+  inputs: BatchFiscalInput[],  // tickets sin los campos de encadenamiento
+  startingHash: string,        // "" si es el primer batch absoluto; lastHash del batch anterior en caso contrario
+): Promise<BatchFiscalResult>
+```
+
+#### Tipos
+
+```ts
+// BatchFiscalInput = FiscalInput sin previousHash ni esPrimerRegistro
+type BatchFiscalInput = Omit<FiscalInput, 'previousHash' | 'esPrimerRegistro'>
+
+interface BatchFiscalResult {
+  results: FiscalData[]  // un FiscalData por ticket, en el mismo orden que inputs
+  lastHash: string       // hash del último registro — persistir para el próximo batch
+}
+```
+
+#### Invariantes
+
+- El orden de `inputs` determina el orden de la cadena. El caller ordena por fecha/numRegistro.
+- `startingHash: ""` activa `esPrimerRegistro: true` para el primer ticket del primer batch.
+- `inputs` vacío devuelve `{ results: [], lastHash: startingHash }` sin error.
+
+---
+
+## 3. Arquitectura interna
+
+```
+src/
+  index.ts   — API pública, orquestación, tipos FiscalInput/FiscalData/VerifactuConfig
+  hash.ts    — buildHashInput() + computeHash() (crypto.subtle)
+  xml.ts     — buildTicketXml(), tipos XmlInput/IvaLine
+  qr.ts      — buildQrUrl(), tipo QrInput
+```
+
+Cada módulo es independiente: `xml.ts` y `qr.ts` son funciones puras síncronas. Solo `hash.ts` es async (por `crypto.subtle`). `index.ts` los compone y expone únicamente `buildTicketFiscalData`.
+
+Los tipos internos (`XmlInput`, `HashInput`, `QrInput`) no se exportan — solo `FiscalInput`, `FiscalData`, `VerifactuConfig` e `IvaLine` son parte de la API pública.
+
+---
+
+## 4. Algoritmo de hash
+
+Implementa la concatenación exigida por el RD 1007/2023, Anexo I:
+
+```
+IDEmisorFactura={nif}
+NumSerieFactura={numSerie}
+FechaExpedicionFactura={DD-MM-YYYY}
+TipoFactura={F2}
+CuotaTotalFactura={cuotaTotal}
+ImporteTotal={importeTotal}
+Encadenamiento={previousHash}
+```
+
+Sin separadores entre campos. El resultado se hashea con SHA-256 vía `crypto.subtle.digest('SHA-256', ...)` y se codifica como hex lowercase de 64 caracteres.
+
+**Invariante:** el campo `Encadenamiento` es vacío (`""`) para `esPrimerRegistro: true`, y el hash del registro anterior para el resto. El XML refleja esto con `<PrimerRegistro>S</PrimerRegistro>` o con el bloque `<RegistroAnterior>`.
+
+---
+
+## 5. Formato XML
+
+Genera un `<RegistroFacturacion>` v1.0 con:
+- `<TipoFactura>F2</TipoFactura>` — factura simplificada
+- `<DescripcionOperacion>Venda de productes</DescripcionOperacion>` — descripción fija
+- `<TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu>` — solo Verifactú (no BATUZ/TICKETBAI)
+- `<NumeroInstalacion>1</NumeroInstalacion>` — instalación única
+
+El XML se genera como string (sin DOM ni parser), lo que garantiza compatibilidad total en Node y browser sin dependencias.
+
+---
+
+## 6. Build y distribución
+
+### Dual build con tsup
+
+```bash
+npm run build   # genera dist/index.js (ESM) + dist/index.cjs (CJS) + types
+```
+
+`tsup.config.ts`:
+```ts
+export default defineConfig({
+  entry: ['src/index.ts'],
+  format: ['esm', 'cjs'],
+  dts: true,
+  clean: true,
+  sourcemap: true,
+})
+```
+
+El `dist/` se compromete en git (no está en `.gitignore`) para que la instalación vía `github:` funcione sin paso de build en el consumidor.
+
+### Exports en package.json
+
+```json
+"exports": {
+  ".": {
+    "import":  { "types": "./dist/index.d.ts",  "default": "./dist/index.js"  },
+    "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
+  }
+}
+```
+
+### Instalación en proyectos consumidores
+
+```bash
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
+```
+
+---
+
+## 7. Tests
+
+21 tests en `tests/`, agrupados por módulo:
+
+| Fichero | Cobertura |
+|---------|-----------|
+| `hash.test.ts` | Concatenación correcta de campos, hash SHA-256 determinista y único |
+| `xml.test.ts` | XML generado para primer registro y registros encadenados, desglose IVA, campos del sistema |
+| `qr.test.ts` | URL QR con parámetros correctos en modo prod y test (`prewww2.aeat.es`) |
+| `batch.test.ts` | Encadenamiento de 3 registros, `lastHash` correcto, `esPrimerRegistro` con `startingHash: ""`, batch vacío |
+
+```bash
+npm run test
+```
+
+No se usa `@testing-library` ni jsdom. Assertions nativas de Vitest. Entorno `node`.
+
+---
+
+## 8. Proceso de actualización
+
+Cuando se modifique la librería:
+
+```bash
+# 1. Hacer cambios en src/
+# 2. Actualizar tests
+npm run test       # verificar 14/14
+
+# 3. Rebuild
+npm run build      # regenera dist/
+
+# 4. Commit incluyendo dist/
+git add src/ tests/ dist/ package.json
+git commit -m "feat/fix: descripción"
+
+# 5. Nuevo tag semántico
+git tag v1.2.0
+git push origin main && git push origin v1.2.0
+
+# 6. Actualizar el tag en los proyectos consumidores
+# En pallaresa-tpv/package.json:
+# "verifactu-js": "github:alfonso-matos-financefox-ch/verifactu-js#v1.2.0"
+# npm install github:...#v1.2.0
+```
+
+**Nunca apuntar a `#main`** — las actualizaciones de una librería fiscal deben ser explícitas e intencionales.
+
+---
+
+## 9. Decisiones de diseño
+
+### Importes como strings, no numbers
+Los importes (`cuotaTotal`, `importeTotal`, `baseImponible`, etc.) son strings para evitar que la aritmética flotante de JavaScript altere los valores fiscales. El sistema integrador formatea los numbers con 2 decimales antes de llamar a la librería. El XML y el hash reflejan exactamente los strings recibidos, sin transformación.
+
+### Sin dependencias runtime
+`crypto.subtle` es una Web API estándar disponible en Node 18+ y todos los browsers modernos. No se necesita ningún paquete npm para el hash. Esto elimina el riesgo de supply chain en una librería de compliance fiscal.
+
+### XML como string (sin DOM)
+Usar template literals para generar el XML evita dependencias en `xmlbuilder2`, `fast-xml-parser` u otros. El formato XML de VeriFACTU es estático y bien definido; no hay ventaja en usar un parser/builder para un schema que no cambia.
+
+### `esPrimerRegistro` explícito
+En lugar de inferir si es el primer registro comprobando `previousHash === ""`, se exige el flag explícito. Esto previene que un hash vacío por error (bug en el integrador) sea tratado silenciosamente como primer registro de la cadena.
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true
+  },
+  "include": ["src", "tests"],
+  "exclude": ["node_modules", "dist"]
+}
+</file>
+
+<file path="src/xml.ts">
+export interface IvaLine {
+  tipoImpositivo: string
+  baseImponible: string
+  cuotaRepercutida: string
+}
+
+export interface XmlInput {
+  nif: string
+  nombreRazon: string
+  softwareNif: string
+  softwareNombre: string
+  softwareVersion: string
+  softwareId: string
+  numSerie: string
+  fecha: string
+  fechaHora: string
+  numRegistro: number
+  tipoFactura: string
+  descripcion: string
+  desgloseIva: IvaLine[]
+  cuotaTotal: string
+  importeTotal: string
+  previousHash: string
+  hash: string
+  esPrimerRegistro: boolean
+}
+
+function encadenamiento(i: XmlInput): string {
+  if (i.esPrimerRegistro) {
+    return `<Encadenamiento><PrimerRegistro>S</PrimerRegistro></Encadenamiento>`
+  }
+  return `<Encadenamiento><PrimerRegistro>N</PrimerRegistro><RegistroAnterior><IDEmisorFactura>${i.nif}</IDEmisorFactura><NumSerieFactura>${i.numSerie}</NumSerieFactura><FechaExpedicionFactura>${i.fecha}</FechaExpedicionFactura><Huella>${i.previousHash}</Huella></RegistroAnterior></Encadenamiento>`
+}
+
+function desgloseIvaXml(lines: IvaLine[]): string {
+  return lines.map(l =>
+    `<DetalleIVA><TipoImpositivo>${l.tipoImpositivo}</TipoImpositivo><BaseImponibleOimporteNoSujeto>${l.baseImponible}</BaseImponibleOimporteNoSujeto><CuotaRepercutida>${l.cuotaRepercutida}</CuotaRepercutida></DetalleIVA>`
+  ).join('')
+}
+
+export function buildTicketXml(i: XmlInput): string {
+  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${i.nif}</IDEmisorFactura><NumSerieFactura>${i.numSerie}</NumSerieFactura><FechaExpedicionFactura>${i.fecha}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${i.nombreRazon}</NombreRazonEmisor><TipoFactura>${i.tipoFactura}</TipoFactura><DescripcionOperacion>${i.descripcion}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${i.cuotaTotal}</CuotaTotal><ImporteTotal>${i.importeTotal}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${i.softwareNombre}</NombreRazon><NIF>${i.softwareNif}</NIF><NombreSistemaInformatico>${i.softwareNombre}</NombreSistemaInformatico><IdSistemaInformatico>${i.softwareId}</IdSistemaInformatico><Version>${i.softwareVersion}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${i.fechaHora}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${i.hash}</HuellaRegistro></RegistroFacturacion>`
+}
+</file>
+
+<file path="tests/hash.test.ts">
+import { describe, it, expect } from 'vitest'
+import { computeHash, buildHashInput } from '../src/hash'
+
+describe('buildHashInput', () => {
+  it('concatenates fields without separator in the correct order', () => {
+    const input = buildHashInput({
+      nif: 'B62215389',
+      numSerie: 'A-2026-000001',
+      fecha: '26-05-2026',
+      tipoFactura: 'F2',
+      cuotaTotal: '1.05',
+      importeTotal: '12.60',
+      previousHash: '',
+    })
+    expect(input).toBe(
+      'IDEmisorFactura=B62215389' +
+      'NumSerieFactura=A-2026-000001' +
+      'FechaExpedicionFactura=26-05-2026' +
+      'TipoFactura=F2' +
+      'CuotaTotalFactura=1.05' +
+      'ImporteTotal=12.60' +
+      'Encadenamiento='
+    )
+  })
+
+  it('includes previousHash when not empty', () => {
+    const input = buildHashInput({
+      nif: 'B62215389',
+      numSerie: 'A-2026-000002',
+      fecha: '26-05-2026',
+      tipoFactura: 'F2',
+      cuotaTotal: '2.10',
+      importeTotal: '23.10',
+      previousHash: 'abc123def456abc123def456abc123def456abc123def456abc123def456abcd',
+    })
+    expect(input).toContain('Encadenamiento=abc123def456abc123def456abc123def456abc123def456abc123def456abcd')
+  })
+})
+
+describe('computeHash', () => {
+  it('returns a 64-char hex string', async () => {
+    const hash = await computeHash('test input')
+    expect(hash).toHaveLength(64)
+    expect(hash).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('is deterministic — same input produces same hash', async () => {
+    const h1 = await computeHash('IDEmisorFactura=B62215389NumSerieFactura=A-2026-000001')
+    const h2 = await computeHash('IDEmisorFactura=B62215389NumSerieFactura=A-2026-000001')
+    expect(h1).toBe(h2)
+  })
+
+  it('different inputs produce different hashes', async () => {
+    const h1 = await computeHash('input-a')
+    const h2 = await computeHash('input-b')
+    expect(h1).not.toBe(h2)
+  })
+})
+</file>
+
+<file path="tests/xml.test.ts">
+import { describe, it, expect } from 'vitest'
+import { buildTicketXml } from '../src/xml'
+import type { XmlInput } from '../src/xml'
+
+const baseInput: XmlInput = {
+  nif: 'B62215389',
+  nombreRazon: 'La Pallaresa, S.L.',
+  softwareNif: '00000000T',
+  softwareNombre: 'pallaresa-tpv',
+  softwareVersion: '1.0',
+  softwareId: 'TPV-PAL-001',
+  numSerie: 'A-2026-000001',
+  fecha: '26-05-2026',
+  fechaHora: '2026-05-26T10:30:00+02:00',
+  numRegistro: 1,
+  tipoFactura: 'F2',
+  descripcion: 'Venda de productes',
+  desgloseIva: [
+    { tipoImpositivo: '10.00', baseImponible: '10.50', cuotaRepercutida: '1.05' },
+  ],
+  cuotaTotal: '1.05',
+  importeTotal: '11.55',
+  previousHash: '',
+  hash: 'abc123def456abc123def456abc123def456abc123def456abc123def456abcd',
+  esPrimerRegistro: true,
+}
+
+describe('buildTicketXml', () => {
+  it('returns a string with the root element', () => {
+    const xml = buildTicketXml(baseInput)
+    expect(xml).toContain('<RegistroFacturacion>')
+    expect(xml).toContain('</RegistroFacturacion>')
+  })
+
+  it('includes the NIF and ticket number', () => {
+    const xml = buildTicketXml(baseInput)
+    expect(xml).toContain('<IDEmisorFactura>B62215389</IDEmisorFactura>')
+    expect(xml).toContain('<NumSerieFactura>A-2026-000001</NumSerieFactura>')
+  })
+
+  it('includes the hash as HuellaRegistro', () => {
+    const xml = buildTicketXml(baseInput)
+    expect(xml).toContain('<HuellaRegistro>abc123def456abc123def456abc123def456abc123def456abc123def456abcd</HuellaRegistro>')
+  })
+
+  it('uses PrimerRegistro=S when esPrimerRegistro is true', () => {
+    const xml = buildTicketXml(baseInput)
+    expect(xml).toContain('<PrimerRegistro>S</PrimerRegistro>')
+  })
+
+  it('uses PrimerRegistro=N and includes previous hash when not first', () => {
+    const xml = buildTicketXml({
+      ...baseInput,
+      esPrimerRegistro: false,
+      previousHash: 'prev123prev123prev123prev123prev123prev123prev123prev123prev12345',
+    })
+    expect(xml).toContain('<PrimerRegistro>N</PrimerRegistro>')
+    expect(xml).toContain('<Huella>prev123prev123prev123prev123prev123prev123prev123prev123prev12345</Huella>')
+  })
+
+  it('includes IVA breakdown', () => {
+    const xml = buildTicketXml(baseInput)
+    expect(xml).toContain('<TipoImpositivo>10.00</TipoImpositivo>')
+    expect(xml).toContain('<BaseImponibleOimporteNoSujeto>10.50</BaseImponibleOimporteNoSujeto>')
+    expect(xml).toContain('<CuotaRepercutida>1.05</CuotaRepercutida>')
+  })
+
+  it('includes ImporteTotal and CuotaTotal', () => {
+    const xml = buildTicketXml(baseInput)
+    expect(xml).toContain('<ImporteTotal>11.55</ImporteTotal>')
+    expect(xml).toContain('<CuotaTotal>1.05</CuotaTotal>')
+  })
+})
+</file>
+
+<file path="src/qr.ts">
+export interface QrInput {
+  nif: string
+  numSerie: string
+  fecha: string        // DD-MM-YYYY
+  importeTotal: string // '12.60'
+  testMode: boolean
+}
+
+const AEAT_QR_BASE_PROD = 'https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR'
+const AEAT_QR_BASE_TEST = 'https://prewww2.aeat.es/wlpl/TEWC-CORE/ValidarQR'
+
+export function buildQrUrl(i: QrInput): string {
+  const base = i.testMode ? AEAT_QR_BASE_TEST : AEAT_QR_BASE_PROD
+  const params = new URLSearchParams({
+    nif: i.nif,
+    numserie: i.numSerie,
+    fecha: i.fecha,
+    importe: i.importeTotal,
+  })
+  return `${base}?${params.toString()}`
+}
+</file>
+
+<file path="tests/qr.test.ts">
+import { describe, it, expect } from 'vitest'
+import { buildQrUrl } from '../src/qr'
+
+describe('buildQrUrl', () => {
+  it('builds the correct AEAT verification URL', () => {
+    const url = buildQrUrl({
+      nif: 'B62215389',
+      numSerie: 'A-2026-000001',
+      fecha: '26-05-2026',
+      importeTotal: '12.60',
+      testMode: false,
+    })
+    expect(url).toBe(
+      'https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR' +
+      '?nif=B62215389' +
+      '&numserie=A-2026-000001' +
+      '&fecha=26-05-2026' +
+      '&importe=12.60'
+    )
+  })
+
+  it('encodes special characters in URL params', () => {
+    const url = buildQrUrl({
+      nif: 'B62215389',
+      numSerie: 'A 2026 001',
+      fecha: '26-05-2026',
+      importeTotal: '5.00',
+      testMode: false,
+    })
+    expect(url).toContain('numserie=A+2026+001')
+  })
+
+  it('builds test URL when testMode is true', () => {
+    const url = buildQrUrl({
+      nif: 'B62215389',
+      numSerie: 'A-2026-000001',
+      fecha: '26-05-2026',
+      importeTotal: '12.60',
+      testMode: true,
+    })
+    expect(url).toBe(
+      'https://prewww2.aeat.es/wlpl/TEWC-CORE/ValidarQR' +
+      '?nif=B62215389' +
+      '&numserie=A-2026-000001' +
+      '&fecha=26-05-2026' +
+      '&importe=12.60'
+    )
+  })
+
+  it('builds prod URL when testMode is false', () => {
+    const url = buildQrUrl({
+      nif: 'B62215389',
+      numSerie: 'A-2026-000001',
+      fecha: '26-05-2026',
+      importeTotal: '12.60',
+      testMode: false,
+    })
+    expect(url).toContain('www2.agenciatributaria.gob.es')
+  })
+})
+</file>
+
+<file path="package.json">
+{
+  "name": "verifactu-js",
+  "version": "1.2.0",
+  "description": "VeriFACTU fiscal data generation — hash chain, XML, QR (RD 1007/2023)",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepare": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
+</file>
+
+<file path="src/index.ts">
+import { buildHashInput, computeHash } from './hash.js'
+import { buildQrUrl } from './qr.js'
+import { buildTicketXml } from './xml.js'
+import type { IvaLine, XmlInput } from './xml.js'
+
+export type { IvaLine }
+
+export interface VerifactuConfig {
+  nif: string
+  nombreRazon: string
+  softwareNif: string
+  softwareNombre: string
+  softwareVersion: string
+  softwareId: string
+  testMode?: boolean   // default: false
+}
+
+export interface FiscalInput {
+  config: VerifactuConfig
+  numSerie: string
+  serie: string
+  fecha: Date
+  numRegistro: number
+  desgloseIva: IvaLine[]
+  cuotaTotal: string
+  importeTotal: string
+  previousHash: string
+  esPrimerRegistro: boolean
+}
+
+export interface FiscalData {
+  hash: string
+  xml: string
+  qrUrl: string
+}
+
+function formatFecha(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  return `${dd}-${mm}-${yyyy}`
+}
+
+function formatFechaHora(d: Date): string {
+  const offset = -d.getTimezoneOffset()
+  const sign = offset >= 0 ? '+' : '-'
+  const hh = String(Math.floor(Math.abs(offset) / 60)).padStart(2, '0')
+  const mn = String(Math.abs(offset) % 60).padStart(2, '0')
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+  return `${local.toISOString().slice(0, 19)}${sign}${hh}:${mn}`
+}
+
+export async function buildTicketFiscalData(input: FiscalInput): Promise<FiscalData> {
+  const fecha = formatFecha(input.fecha)
+
+  const hashStr = buildHashInput({
+    nif: input.config.nif,
+    numSerie: input.numSerie,
+    fecha,
+    tipoFactura: 'F2',
+    cuotaTotal: input.cuotaTotal,
+    importeTotal: input.importeTotal,
+    previousHash: input.previousHash,
+  })
+
+  const hash = await computeHash(hashStr)
+
+  const xmlInput: XmlInput = {
+    nif: input.config.nif,
+    nombreRazon: input.config.nombreRazon,
+    softwareNif: input.config.softwareNif,
+    softwareNombre: input.config.softwareNombre,
+    softwareVersion: input.config.softwareVersion,
+    softwareId: input.config.softwareId,
+    numSerie: input.numSerie,
+    fecha,
+    fechaHora: formatFechaHora(input.fecha),
+    numRegistro: input.numRegistro,
+    tipoFactura: 'F2',
+    descripcion: 'Venda de productes',
+    desgloseIva: input.desgloseIva,
+    cuotaTotal: input.cuotaTotal,
+    importeTotal: input.importeTotal,
+    previousHash: input.previousHash,
+    hash,
+    esPrimerRegistro: input.esPrimerRegistro,
+  }
+
+  const xml = buildTicketXml(xmlInput)
+  const qrUrl = buildQrUrl({
+    nif: input.config.nif,
+    numSerie: input.numSerie,
+    fecha,
+    importeTotal: input.importeTotal,
+    testMode: input.config.testMode ?? false,
+  })
+
+  return { hash, xml, qrUrl }
+}
+
+export type BatchFiscalInput = Omit<FiscalInput, 'previousHash' | 'esPrimerRegistro'>
+
+export interface BatchFiscalResult {
+  results: FiscalData[]
+  lastHash: string
+}
+
+export async function buildBatchFiscalData(
+  inputs: BatchFiscalInput[],
+  startingHash: string,
+): Promise<BatchFiscalResult> {
+  let currentHash = startingHash
+  const results: FiscalData[] = []
+
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i]!
+    const esPrimerRegistro = currentHash === '' && i === 0
+    const result = await buildTicketFiscalData({
+      config: input.config,
+      numSerie: input.numSerie,
+      serie: input.serie,
+      fecha: input.fecha,
+      numRegistro: input.numRegistro,
+      desgloseIva: input.desgloseIva,
+      cuotaTotal: input.cuotaTotal,
+      importeTotal: input.importeTotal,
+      previousHash: currentHash,
+      esPrimerRegistro,
+    })
+    results.push(result)
+    currentHash = result.hash
+  }
+
+  return { results, lastHash: currentHash }
+}
+
+// ---------------------------------------------------------------------------
+// AEAT submission interface
+// ---------------------------------------------------------------------------
+
+export type AeatResponse =
+  | { ok: true;  csv: string }   // Código Seguro de Verificación (16 hex chars)
+  | { ok: false; error: string }
+
+async function submitMock(_xml: string, hash: string): Promise<AeatResponse> {
+  await new Promise<void>(r => setTimeout(r, 100 + Math.random() * 300))
+  return { ok: true, csv: hash.slice(0, 16).toUpperCase() }
+}
+
+async function submitReal(
+  _xml: string,
+  _config: VerifactuConfig,
+  _hash: string,
+): Promise<AeatResponse> {
+  throw new Error(
+    'Real SOAP not yet implemented — set testMode: true or provide a P12 certificate',
+  )
+}
+
+export async function submit(
+  xml: string,
+  config: VerifactuConfig,
+  hash: string,
+): Promise<AeatResponse> {
+  return config.testMode === true
+    ? submitMock(xml, hash)
+    : submitReal(xml, config, hash)
+}
+</file>
+
+</files>

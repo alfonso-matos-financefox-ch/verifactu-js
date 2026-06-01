@@ -50,7 +50,20 @@ function formatFechaHora(d: Date): string {
   return `${local.toISOString().slice(0, 19)}${sign}${hh}:${mn}`
 }
 
+function assertChainInput(input: FiscalInput): void {
+  if (input.esPrimerRegistro && input.previousHash !== '') {
+    throw new Error('Invalid chain input: first record must have empty previousHash')
+  }
+  if (!input.esPrimerRegistro && input.previousHash === '') {
+    throw new Error('Invalid chain input: non-first record must have previousHash')
+  }
+  if (input.previousHash !== '' && !/^[0-9a-fA-F]{64}$/.test(input.previousHash)) {
+    throw new Error('Invalid chain input: previousHash must be empty or 64-char hex')
+  }
+}
+
 export async function buildTicketFiscalData(input: FiscalInput): Promise<FiscalData> {
+  assertChainInput(input)
   const fecha = formatFecha(input.fecha)
 
   const hashStr = buildHashInput({
@@ -134,35 +147,3 @@ export async function buildBatchFiscalData(
   return { results, lastHash: currentHash }
 }
 
-// ---------------------------------------------------------------------------
-// AEAT submission interface
-// ---------------------------------------------------------------------------
-
-export type AeatResponse =
-  | { ok: true;  csv: string }   // Código Seguro de Verificación (16 hex chars)
-  | { ok: false; error: string }
-
-async function submitMock(_xml: string, hash: string): Promise<AeatResponse> {
-  await new Promise<void>(r => setTimeout(r, 100 + Math.random() * 300))
-  return { ok: true, csv: hash.slice(0, 16).toUpperCase() }
-}
-
-async function submitReal(
-  _xml: string,
-  _config: VerifactuConfig,
-  _hash: string,
-): Promise<AeatResponse> {
-  throw new Error(
-    'Real SOAP not yet implemented — set testMode: true or provide a P12 certificate',
-  )
-}
-
-export async function submit(
-  xml: string,
-  config: VerifactuConfig,
-  hash: string,
-): Promise<AeatResponse> {
-  return config.testMode === true
-    ? submitMock(xml, hash)
-    : submitReal(xml, config, hash)
-}

@@ -24,19 +24,22 @@ function buildQrUrl(i) {
 }
 
 // src/xml.ts
+function escapeXml(s) {
+  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
+}
 function encadenamiento(i) {
   if (i.esPrimerRegistro) {
     return `<Encadenamiento><PrimerRegistro>S</PrimerRegistro></Encadenamiento>`;
   }
-  return `<Encadenamiento><PrimerRegistro>N</PrimerRegistro><RegistroAnterior><IDEmisorFactura>${i.nif}</IDEmisorFactura><NumSerieFactura>${i.numSerie}</NumSerieFactura><FechaExpedicionFactura>${i.fecha}</FechaExpedicionFactura><Huella>${i.previousHash}</Huella></RegistroAnterior></Encadenamiento>`;
+  return `<Encadenamiento><PrimerRegistro>N</PrimerRegistro><RegistroAnterior><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura><Huella>${escapeXml(i.previousHash)}</Huella></RegistroAnterior></Encadenamiento>`;
 }
 function desgloseIvaXml(lines) {
   return lines.map(
-    (l) => `<DetalleIVA><TipoImpositivo>${l.tipoImpositivo}</TipoImpositivo><BaseImponibleOimporteNoSujeto>${l.baseImponible}</BaseImponibleOimporteNoSujeto><CuotaRepercutida>${l.cuotaRepercutida}</CuotaRepercutida></DetalleIVA>`
+    (l) => `<DetalleIVA><TipoImpositivo>${escapeXml(l.tipoImpositivo)}</TipoImpositivo><BaseImponibleOimporteNoSujeto>${escapeXml(l.baseImponible)}</BaseImponibleOimporteNoSujeto><CuotaRepercutida>${escapeXml(l.cuotaRepercutida)}</CuotaRepercutida></DetalleIVA>`
   ).join("");
 }
 function buildTicketXml(i) {
-  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${i.nif}</IDEmisorFactura><NumSerieFactura>${i.numSerie}</NumSerieFactura><FechaExpedicionFactura>${i.fecha}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${i.nombreRazon}</NombreRazonEmisor><TipoFactura>${i.tipoFactura}</TipoFactura><DescripcionOperacion>${i.descripcion}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${i.cuotaTotal}</CuotaTotal><ImporteTotal>${i.importeTotal}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${i.softwareNombre}</NombreRazon><NIF>${i.softwareNif}</NIF><NombreSistemaInformatico>${i.softwareNombre}</NombreSistemaInformatico><IdSistemaInformatico>${i.softwareId}</IdSistemaInformatico><Version>${i.softwareVersion}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${i.fechaHora}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${i.hash}</HuellaRegistro></RegistroFacturacion>`;
+  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor><TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura><DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${escapeXml(i.softwareNombre)}</NombreRazon><NIF>${escapeXml(i.softwareNif)}</NIF><NombreSistemaInformatico>${escapeXml(i.softwareNombre)}</NombreSistemaInformatico><IdSistemaInformatico>${escapeXml(i.softwareId)}</IdSistemaInformatico><Version>${escapeXml(i.softwareVersion)}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${escapeXml(i.fechaHora)}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${escapeXml(i.hash)}</HuellaRegistro></RegistroFacturacion>`;
 }
 
 // src/index.ts
@@ -54,7 +57,19 @@ function formatFechaHora(d) {
   const local = new Date(d.getTime() - d.getTimezoneOffset() * 6e4);
   return `${local.toISOString().slice(0, 19)}${sign}${hh}:${mn}`;
 }
+function assertChainInput(input) {
+  if (input.esPrimerRegistro && input.previousHash !== "") {
+    throw new Error("Invalid chain input: first record must have empty previousHash");
+  }
+  if (!input.esPrimerRegistro && input.previousHash === "") {
+    throw new Error("Invalid chain input: non-first record must have previousHash");
+  }
+  if (input.previousHash !== "" && !/^[0-9a-fA-F]{64}$/.test(input.previousHash)) {
+    throw new Error("Invalid chain input: previousHash must be empty or 64-char hex");
+  }
+}
 async function buildTicketFiscalData(input) {
+  assertChainInput(input);
   const fecha = formatFecha(input.fecha);
   const hashStr = buildHashInput({
     nif: input.config.nif,
@@ -119,21 +134,8 @@ async function buildBatchFiscalData(inputs, startingHash) {
   }
   return { results, lastHash: currentHash };
 }
-async function submitMock(_xml, hash) {
-  await new Promise((r) => setTimeout(r, 100 + Math.random() * 300));
-  return { ok: true, csv: hash.slice(0, 16).toUpperCase() };
-}
-async function submitReal(_xml, _config, _hash) {
-  throw new Error(
-    "Real SOAP not yet implemented \u2014 set testMode: true or provide a P12 certificate"
-  );
-}
-async function submit(xml, config, hash) {
-  return config.testMode === true ? submitMock(xml, hash) : submitReal(xml, config, hash);
-}
 export {
   buildBatchFiscalData,
-  buildTicketFiscalData,
-  submit
+  buildTicketFiscalData
 };
 //# sourceMappingURL=index.js.map
