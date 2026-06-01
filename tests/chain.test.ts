@@ -40,7 +40,7 @@ describe('assertChainInput — buildTicketFiscalData', () => {
     })).rejects.toThrow('non-first record must have previousHash')
   })
 
-  it('throws when previousHash is non-empty but not valid 64-char hex', async () => {
+  it('throws when previousHash is non-empty but not valid lowercase 64-char hex', async () => {
     await expect(buildTicketFiscalData({
       config,
       numSerie: 'A-2026-000001', serie: 'A',
@@ -50,7 +50,20 @@ describe('assertChainInput — buildTicketFiscalData', () => {
       cuotaTotal: '0.91', importeTotal: '10.00',
       previousHash: 'not-a-valid-hash',
       esPrimerRegistro: false,
-    })).rejects.toThrow('previousHash must be empty or 64-char hex')
+    })).rejects.toThrow('previousHash must be empty or lowercase 64-char hex')
+  })
+
+  it('throws when previousHash is uppercase hex (only lowercase canonical)', async () => {
+    await expect(buildTicketFiscalData({
+      config,
+      numSerie: 'A-2026-000001', serie: 'A',
+      fecha: new Date('2026-01-01T12:00:00'),
+      numRegistro: 1,
+      desgloseIva: [{ tipoImpositivo: '10', baseImponible: '9.09', cuotaRepercutida: '0.91' }],
+      cuotaTotal: '0.91', importeTotal: '10.00',
+      previousHash: 'A'.repeat(64),
+      esPrimerRegistro: false,
+    })).rejects.toThrow('previousHash must be empty or lowercase 64-char hex')
   })
 
   it('succeeds with valid first record', async () => {
@@ -81,6 +94,22 @@ describe('assertChainInput — buildTicketFiscalData', () => {
     })
     expect(result.hash).toHaveLength(64)
     expect(result.xml).toContain('<PrimerRegistro>N</PrimerRegistro>')
+  })
+})
+
+describe('buildBatchFiscalData — startingHash validation', () => {
+  it('throws when startingHash is invalid even if inputs is empty', async () => {
+    await expect(buildBatchFiscalData([], 'bad-hash')).rejects.toThrow('previousHash')
+  })
+
+  it('throws when startingHash is uppercase hex', async () => {
+    await expect(buildBatchFiscalData([], 'A'.repeat(64))).rejects.toThrow('lowercase')
+  })
+
+  it('accepts empty startingHash with empty inputs', async () => {
+    const result = await buildBatchFiscalData([], '')
+    expect(result.results).toHaveLength(0)
+    expect(result.lastHash).toBe('')
   })
 })
 

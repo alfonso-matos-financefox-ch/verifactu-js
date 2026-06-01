@@ -50,6 +50,12 @@ function formatFechaHora(d: Date): string {
   return `${local.toISOString().slice(0, 19)}${sign}${hh}:${mn}`
 }
 
+function assertPreviousHash(value: string): void {
+  if (value !== '' && !/^[0-9a-f]{64}$/.test(value)) {
+    throw new Error('Invalid chain input: previousHash must be empty or lowercase 64-char hex')
+  }
+}
+
 function assertChainInput(input: FiscalInput): void {
   if (input.esPrimerRegistro && input.previousHash !== '') {
     throw new Error('Invalid chain input: first record must have empty previousHash')
@@ -57,9 +63,7 @@ function assertChainInput(input: FiscalInput): void {
   if (!input.esPrimerRegistro && input.previousHash === '') {
     throw new Error('Invalid chain input: non-first record must have previousHash')
   }
-  if (input.previousHash !== '' && !/^[0-9a-fA-F]{64}$/.test(input.previousHash)) {
-    throw new Error('Invalid chain input: previousHash must be empty or 64-char hex')
-  }
+  assertPreviousHash(input.previousHash)
 }
 
 export async function buildTicketFiscalData(input: FiscalInput): Promise<FiscalData> {
@@ -122,6 +126,7 @@ export async function buildBatchFiscalData(
   inputs: BatchFiscalInput[],
   startingHash: string,
 ): Promise<BatchFiscalResult> {
+  assertPreviousHash(startingHash)
   let currentHash = startingHash
   const results: FiscalData[] = []
 

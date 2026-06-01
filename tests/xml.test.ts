@@ -81,4 +81,14 @@ describe('buildTicketXml', () => {
     const xml = buildTicketXml({ ...baseInput, descripcion: 'Menú < 10€ > estiu' })
     expect(xml).toContain('<DescripcionOperacion>Menú &lt; 10€ &gt; estiu</DescripcionOperacion>')
   })
+
+  it('escapes double quotes and apostrophes in text fields', () => {
+    const xml = buildTicketXml({
+      ...baseInput,
+      nombreRazon: 'Bar "Test" & Cafè \'S.L.\'',
+    })
+    expect(xml).toContain('&quot;Test&quot;')
+    expect(xml).toContain('&apos;S.L.&apos;')
+    expect(xml).toContain('&amp;')
+  })
 })
