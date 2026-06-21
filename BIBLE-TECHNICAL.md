@@ -23,7 +23,7 @@ Toda la API se exporta desde `src/index.ts` (único entry point).
 ### Instalación
 
 ```bash
-npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.3.0
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.4.0
 ```
 
 ```ts
@@ -50,17 +50,23 @@ interface VerifactuConfig {
   testMode?: boolean       // default: false — true apunta el QR a prewww2.aeat.es
 }
 
+interface DestinatarioF1 {
+  nif: string     // NIF/CIF del destinatario (empresa o autónomo)
+  nombre: string  // Razón social o nombre completo
+}
+
 interface FiscalInput {
   config: VerifactuConfig
-  numSerie: string          // Número de serie (ej. "A-2026-000042")
-  serie: string             // Serie (ej. "A")
-  fecha: Date               // Fecha de expedición (Date nativo)
-  numRegistro: number       // Número de registro en la cadena (1, 2, 3...)
-  desgloseIva: IvaLine[]    // Líneas de IVA
-  cuotaTotal: string        // Total cuota IVA ("1.05")
-  importeTotal: string      // Total factura ("12.60")
-  previousHash: string      // Hash del registro anterior ("" si es el primero)
-  esPrimerRegistro: boolean // true solo para el primer registro de la cadena
+  numSerie: string              // Número de serie (ej. "A-2026-000042")
+  serie: string                 // Serie (ej. "A")
+  fecha: Date                   // Fecha de expedición (Date nativo)
+  numRegistro: number           // Número de registro en la cadena (1, 2, 3...)
+  desgloseIva: IvaLine[]        // Líneas de IVA
+  cuotaTotal: string            // Total cuota IVA ("1.05")
+  importeTotal: string          // Total factura ("12.60")
+  previousHash: string          // Hash del registro anterior ("" si es el primero)
+  esPrimerRegistro: boolean     // true solo para el primer registro de la cadena
+  destinatario?: DestinatarioF1 // Presente → F1 (B2B); ausente → F2 (consumidor final)
 }
 
 interface IvaLine {
@@ -127,7 +133,7 @@ Cada módulo es independiente: `xml.ts` y `qr.ts` son funciones puras síncronas
 
 **La librería no contiene lógica de envío AEAT.** No hay `submit()`, `submitMock()`, ni cliente SOAP. El envío es responsabilidad del sistema integrador.
 
-Los tipos internos (`XmlInput`, `HashInput`, `QrInput`) no se exportan — solo `FiscalInput`, `FiscalData`, `VerifactuConfig` e `IvaLine` son parte de la API pública.
+Los tipos internos (`XmlInput`, `HashInput`, `QrInput`) no se exportan — solo `FiscalInput`, `FiscalData`, `VerifactuConfig`, `IvaLine` y `DestinatarioF1` son parte de la API pública.
 
 ---
 
@@ -139,7 +145,7 @@ Implementa la concatenación exigida por el RD 1007/2023, Anexo I:
 IDEmisorFactura={nif}
 NumSerieFactura={numSerie}
 FechaExpedicionFactura={DD-MM-YYYY}
-TipoFactura={F2}
+TipoFactura={tipoFactura}     ← "F1" si hay destinatario, "F2" si no
 CuotaTotalFactura={cuotaTotal}
 ImporteTotal={importeTotal}
 Encadenamiento={previousHash}
@@ -147,19 +153,42 @@ Encadenamiento={previousHash}
 
 Sin separadores entre campos. El resultado se hashea con SHA-256 vía `crypto.subtle.digest('SHA-256', ...)` y se codifica como hex lowercase de 64 caracteres.
 
-**Invariante:** el campo `Encadenamiento` es vacío (`""`) para `esPrimerRegistro: true`, y el hash del registro anterior para el resto. El XML refleja esto con `<PrimerRegistro>S</PrimerRegistro>` o con el bloque `<RegistroAnterior>`.
+**Invariante F1/F2:** el `TipoFactura` entra en el hash, por lo que la misma factura produce hashes distintos según lleve o no `destinatario`. Esto es deliberado y exigido por el RD.
+
+**Invariante de encadenamiento:** el campo `Encadenamiento` es vacío (`""`) para `esPrimerRegistro: true`, y el hash del registro anterior para el resto. El XML refleja esto con `<PrimerRegistro>S</PrimerRegistro>` o con el bloque `<RegistroAnterior>`.
 
 ---
 
 ## 5. Formato XML
 
-Genera un `<RegistroFacturacion>` v1.0 con:
-- `<TipoFactura>F2</TipoFactura>` — factura simplificada
+Genera un `<RegistroFacturacion>` v1.0. El orden de los campos respeta el XSD de la AEAT:
+
+```
+IDVersion → IDFactura → NombreRazonEmisor
+  → [Destinatarios]  ← solo en F1, antes de TipoFactura
+  → TipoFactura → DescripcionOperacion → Desglose
+  → CuotaTotal → ImporteTotal → Encadenamiento
+  → SistemaInformatico → FechaHoraHusoHorarioSistema
+  → NumRegistro → HuellaRegistro
+```
+
+Campos fijos:
+- `<TipoFactura>F1</TipoFactura>` o `<TipoFactura>F2</TipoFactura>` — derivado de la presencia de `destinatario`
 - `<DescripcionOperacion>Venda de productes</DescripcionOperacion>` — descripción fija
 - `<TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu>` — solo Verifactú (no BATUZ/TICKETBAI)
 - `<NumeroInstalacion>1</NumeroInstalacion>` — instalación única
 
-El XML se genera como string (sin DOM ni parser), lo que garantiza compatibilidad total en Node y browser sin dependencias.
+Bloque F1 (`<Destinatarios>`):
+```xml
+<Destinatarios>
+  <IDDestinatario>
+    <NombreRazon>{destinatario.nombre escapeado}</NombreRazon>
+    <NIF>{destinatario.nif escapeado}</NIF>
+  </IDDestinatario>
+</Destinatarios>
+```
+
+El XML se genera como string (sin DOM ni parser), lo que garantiza compatibilidad total en Node y browser sin dependencias. Los caracteres especiales (`&`, `<`, `>`, `"`, `'`) se escapean en todos los campos de texto.
 
 ---
 
@@ -209,12 +238,12 @@ Tests en `tests/`, agrupados por módulo:
 
 | Fichero | Cobertura |
 |---------|-----------|
-| `hash.test.ts` | Concatenación correcta de campos, hash SHA-256 determinista y único |
-| `xml.test.ts` | XML generado para primer registro y registros encadenados, desglose IVA, campos del sistema, escape de caracteres especiales (`&`, `<`, `>`) |
+| `hash.test.ts` | Concatenación correcta de campos, hash SHA-256 determinista y único, F1 y F2 producen hashes distintos |
+| `xml.test.ts` | XML F2 (sin `<Destinatarios>`), XML F1 con bloque `<Destinatarios>` completo y en posición correcta (antes de `<TipoFactura>`), desglose IVA, campos del sistema, escape de caracteres especiales en emisor y destinatario |
 | `qr.test.ts` | URL QR con parámetros correctos en modo prod y test (`prewww2.aeat.es`) |
 | `batch.test.ts` | Encadenamiento de registros, `lastHash` correcto, `esPrimerRegistro` con `startingHash: ""`, batch vacío |
 | `chain.test.ts` | Validación de invariantes de cadena: combinaciones inválidas de `esPrimerRegistro`/`previousHash` lanzan error; campo `serie` no afecta a hash/xml/qrUrl |
-| `golden.test.ts` | Golden master: input fijo → hash, qrUrl y estructura XML exactos. Cualquier cambio que rompa estos tests es un cambio fiscal. |
+| `golden.test.ts` | Golden master F2 y F1: input fijo → hash, qrUrl y estructura XML exactos. Cualquier cambio que rompa estos tests es un cambio fiscal. |
 
 ```bash
 npm run test
@@ -241,12 +270,12 @@ git add src/ tests/ dist/ package.json
 git commit -m "feat/fix: descripción"
 
 # 5. Nuevo tag semántico
-git tag v1.3.x
-git push origin main && git push origin v1.3.x
+git tag v1.4.x
+git push origin main && git push origin v1.4.x
 
 # 6. Actualizar el tag en los proyectos consumidores
-# En pallaresa-tpv/package.json:
-# "verifactu-js": "github:alfonso-matos-financefox-ch/verifactu-js#v1.3.x"
+# En pallaresa-tpv/package.json o functions/package.json:
+# "verifactu-js": "github:alfonso-matos-financefox-ch/verifactu-js#v1.4.x"
 # npm install
 ```
 

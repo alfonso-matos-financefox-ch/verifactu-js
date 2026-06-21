@@ -58,7 +58,11 @@ El XML no cambia entre entornos. La distinción test/prod en el protocolo SOAP l
 
 ### 3.2 Facturas de EasyFichi
 
-Las facturas emitidas desde EasyFichi son facturas completas pero también pueden ser tipo F2 si son al consumidor final. La Cloud Function de facturación llama a `buildTicketFiscalData()` en Node.js usando el módulo CJS (`require('verifactu-js')`).
+Las facturas emitidas desde EasyFichi pueden ser:
+- **F2** (al consumidor final): sin `destinatario` en `FiscalInput`.
+- **F1** (B2B): pasar `destinatario: { nif, nombre }` cuando la factura tenga `terceroId`/`terceroCif`. La librería incluirá automáticamente el bloque `<Destinatarios>` en el XML y usará `TipoFactura=F1` en el hash.
+
+La Cloud Function de facturación llama a `buildTicketFiscalData()` en Node.js usando el módulo CJS (`require('verifactu-js')`).
 
 La cadena de hashes de EasyFichi es **independiente** de la cadena del TPV — son dos sistemas de facturación distintos con sus propias series.
 
@@ -67,13 +71,13 @@ La cadena de hashes de EasyFichi es **independiente** de la cadena del TPV — s
 ## 4. Alcance y limitaciones
 
 ### Lo que cubre
-- Facturas simplificadas tipo **F2** (tickets de caja, facturas sin datos del destinatario).
-- Cadena hash SHA-256 con la concatenación exacta exigida por el RD 1007/2023.
-- XML `RegistroFacturacion` versión 1.0.
-- URL QR del portal de verificación de la AEAT.
+- Facturas simplificadas tipo **F2** (tickets de caja, facturas al consumidor final, sin datos del destinatario).
+- Facturas completas tipo **F1** (B2B con datos del destinatario: NIF + razón social). Pasar `destinatario` en `FiscalInput` activa automáticamente F1; omitirlo produce F2. La API es backward-compatible.
+- Cadena hash SHA-256 con la concatenación exacta exigida por el RD 1007/2023 (el `TipoFactura` entra en el hash, por lo que F1 y F2 producen hashes distintos).
+- XML `RegistroFacturacion` versión 1.0 con bloque `<Destinatarios>` en F1.
+- URL QR del portal de verificación de la AEAT (idéntica para F1 y F2).
 
 ### Lo que NO cubre
-- Facturas completas tipo F1 (con datos del destinatario) — extensión futura.
 - Firma XML con certificado .p12 — responsabilidad de la Cloud Function integradora.
 - Comunicación SOAP con los endpoints de la AEAT — ídem. No hay `submit()`.
 - Mock de envío AEAT — el integrador implementa su propio mock si lo necesita.
