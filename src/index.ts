@@ -1,9 +1,9 @@
 import { buildHashInput, computeHash } from './hash.js'
 import { buildQrUrl } from './qr.js'
 import { buildTicketXml } from './xml.js'
-import type { IvaLine, XmlInput } from './xml.js'
+import type { IvaLine, XmlInput, DestinatarioF1 } from './xml.js'
 
-export type { IvaLine }
+export type { IvaLine, DestinatarioF1 }
 
 export interface VerifactuConfig {
   nif: string
@@ -26,6 +26,7 @@ export interface FiscalInput {
   importeTotal: string
   previousHash: string
   esPrimerRegistro: boolean
+  destinatario?: DestinatarioF1
 }
 
 export interface FiscalData {
@@ -69,12 +70,13 @@ function assertChainInput(input: FiscalInput): void {
 export async function buildTicketFiscalData(input: FiscalInput): Promise<FiscalData> {
   assertChainInput(input)
   const fecha = formatFecha(input.fecha)
+  const tipoFactura = input.destinatario ? 'F1' : 'F2'
 
   const hashStr = buildHashInput({
     nif: input.config.nif,
     numSerie: input.numSerie,
     fecha,
-    tipoFactura: 'F2',
+    tipoFactura,
     cuotaTotal: input.cuotaTotal,
     importeTotal: input.importeTotal,
     previousHash: input.previousHash,
@@ -93,7 +95,7 @@ export async function buildTicketFiscalData(input: FiscalInput): Promise<FiscalD
     fecha,
     fechaHora: formatFechaHora(input.fecha),
     numRegistro: input.numRegistro,
-    tipoFactura: 'F2',
+    tipoFactura,
     descripcion: 'Venda de productes',
     desgloseIva: input.desgloseIva,
     cuotaTotal: input.cuotaTotal,
@@ -101,6 +103,7 @@ export async function buildTicketFiscalData(input: FiscalInput): Promise<FiscalD
     previousHash: input.previousHash,
     hash,
     esPrimerRegistro: input.esPrimerRegistro,
+    ...(input.destinatario !== undefined ? { destinatario: input.destinatario } : {}),
   }
 
   const xml = buildTicketXml(xmlInput)
@@ -144,6 +147,7 @@ export async function buildBatchFiscalData(
       importeTotal: input.importeTotal,
       previousHash: currentHash,
       esPrimerRegistro,
+      ...(input.destinatario !== undefined ? { destinatario: input.destinatario } : {}),
     })
     results.push(result)
     currentHash = result.hash

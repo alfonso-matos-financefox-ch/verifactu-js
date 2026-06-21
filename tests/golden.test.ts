@@ -76,6 +76,43 @@ describe('golden — single ticket', () => {
   })
 })
 
+const GOLDEN_HASH_F1 = '81cc57f1429ece098c6e9f326bb21cb6c63c8df4974012b8d775fad434f113d3'
+
+describe('golden — F1 invoice (B2B con destinatario)', () => {
+  const f1Input = {
+    config,
+    numSerie: 'A-2026-000001', serie: 'A',
+    fecha: new Date(2026, 0, 1, 12, 0, 0),
+    numRegistro: 1,
+    desgloseIva: [{ tipoImpositivo: '10', baseImponible: '9.09', cuotaRepercutida: '0.91' }],
+    cuotaTotal: '0.91', importeTotal: '10.00',
+    previousHash: '', esPrimerRegistro: true,
+    destinatario: { nif: 'B12345678', nombre: 'Empresa Cliente S.L.' },
+  }
+
+  it('produces a deterministic F1 hash distinct from the equivalent F2 hash', async () => {
+    const { hash } = await buildTicketFiscalData(f1Input)
+    expect(hash).toBe(GOLDEN_HASH_F1)
+    expect(hash).not.toBe(GOLDEN_HASH_1)
+  })
+
+  it('F1 XML contains TipoFactura F1 and Destinatarios block', async () => {
+    const { xml, hash } = await buildTicketFiscalData(f1Input)
+    expect(xml).toContain('<TipoFactura>F1</TipoFactura>')
+    expect(xml).toContain('<Destinatarios><IDDestinatario><NombreRazon>Empresa Cliente S.L.</NombreRazon><NIF>B12345678</NIF></IDDestinatario></Destinatarios>')
+    expect(xml).toContain(`<HuellaRegistro>${hash}</HuellaRegistro>`)
+    expect(xml).not.toContain('<TipoFactura>F2</TipoFactura>')
+  })
+
+  it('F1 qrUrl is identical to F2 for the same invoice data (QR is type-independent)', async () => {
+    const { qrUrl } = await buildTicketFiscalData(f1Input)
+    expect(qrUrl).toBe(
+      'https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR' +
+      '?nif=B62215389&numserie=A-2026-000001&fecha=01-01-2026&importe=10.00',
+    )
+  })
+})
+
 describe('golden — batch chain', () => {
   it('produces stable hashes for a 2-ticket chained batch', async () => {
     const { results, lastHash } = await buildBatchFiscalData([
