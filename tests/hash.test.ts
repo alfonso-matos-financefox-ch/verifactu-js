@@ -35,6 +35,20 @@ describe('buildHashInput', () => {
     })
     expect(input).toContain('Encadenamiento=abc123def456abc123def456abc123def456abc123def456abc123def456abcd')
   })
+
+  it('F1 and F2 produce different hash inputs for the same invoice data', async () => {
+    const base = {
+      nif: 'B62215389',
+      numSerie: 'A-2026-000001',
+      fecha: '01-01-2026',
+      cuotaTotal: '0.91',
+      importeTotal: '10.00',
+      previousHash: '',
+    }
+    const hashF2 = await computeHash(buildHashInput({ ...base, tipoFactura: 'F2' }))
+    const hashF1 = await computeHash(buildHashInput({ ...base, tipoFactura: 'F1' }))
+    expect(hashF1).not.toBe(hashF2)
+  })
 })
 
 describe('computeHash', () => {

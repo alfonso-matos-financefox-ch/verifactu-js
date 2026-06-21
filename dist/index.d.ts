@@ -3,6 +3,10 @@ interface IvaLine {
     baseImponible: string;
     cuotaRepercutida: string;
 }
+interface DestinatarioF1 {
+    nif: string;
+    nombre: string;
+}
 
 interface VerifactuConfig {
     nif: string;
@@ -24,6 +28,7 @@ interface FiscalInput {
     importeTotal: string;
     previousHash: string;
     esPrimerRegistro: boolean;
+    destinatario?: DestinatarioF1;
 }
 interface FiscalData {
     hash: string;
@@ -38,4 +43,4 @@ interface BatchFiscalResult {
 }
 declare function buildBatchFiscalData(inputs: BatchFiscalInput[], startingHash: string): Promise<BatchFiscalResult>;
 
-export { type BatchFiscalInput, type BatchFiscalResult, type FiscalData, type FiscalInput, type IvaLine, type VerifactuConfig, buildBatchFiscalData, buildTicketFiscalData };
+export { type BatchFiscalInput, type BatchFiscalResult, type DestinatarioF1, type FiscalData, type FiscalInput, type IvaLine, type VerifactuConfig, buildBatchFiscalData, buildTicketFiscalData };

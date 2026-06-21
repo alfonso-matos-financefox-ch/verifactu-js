@@ -4,6 +4,11 @@ export interface IvaLine {
   cuotaRepercutida: string
 }
 
+export interface DestinatarioF1 {
+  nif: string
+  nombre: string
+}
+
 export interface XmlInput {
   nif: string
   nombreRazon: string
@@ -23,6 +28,7 @@ export interface XmlInput {
   previousHash: string
   hash: string
   esPrimerRegistro: boolean
+  destinatario?: DestinatarioF1
 }
 
 function escapeXml(s: string): string {
@@ -32,6 +38,10 @@ function escapeXml(s: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;')
+}
+
+function buildDestinatariosXml(d: DestinatarioF1): string {
+  return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon><NIF>${escapeXml(d.nif)}</NIF></IDDestinatario></Destinatarios>`
 }
 
 function encadenamiento(i: XmlInput): string {
@@ -48,5 +58,6 @@ function desgloseIvaXml(lines: IvaLine[]): string {
 }
 
 export function buildTicketXml(i: XmlInput): string {
-  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor><TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura><DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${escapeXml(i.softwareNombre)}</NombreRazon><NIF>${escapeXml(i.softwareNif)}</NIF><NombreSistemaInformatico>${escapeXml(i.softwareNombre)}</NombreSistemaInformatico><IdSistemaInformatico>${escapeXml(i.softwareId)}</IdSistemaInformatico><Version>${escapeXml(i.softwareVersion)}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${escapeXml(i.fechaHora)}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${escapeXml(i.hash)}</HuellaRegistro></RegistroFacturacion>`
+  const destinatariosBlock = i.destinatario ? buildDestinatariosXml(i.destinatario) : ''
+  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor>${destinatariosBlock}<TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura><DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${escapeXml(i.softwareNombre)}</NombreRazon><NIF>${escapeXml(i.softwareNif)}</NIF><NombreSistemaInformatico>${escapeXml(i.softwareNombre)}</NombreSistemaInformatico><IdSistemaInformatico>${escapeXml(i.softwareId)}</IdSistemaInformatico><Version>${escapeXml(i.softwareVersion)}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${escapeXml(i.fechaHora)}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${escapeXml(i.hash)}</HuellaRegistro></RegistroFacturacion>`
 }

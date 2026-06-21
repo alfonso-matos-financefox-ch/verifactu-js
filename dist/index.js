@@ -27,6 +27,9 @@ function buildQrUrl(i) {
 function escapeXml(s) {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 }
+function buildDestinatariosXml(d) {
+  return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon><NIF>${escapeXml(d.nif)}</NIF></IDDestinatario></Destinatarios>`;
+}
 function encadenamiento(i) {
   if (i.esPrimerRegistro) {
     return `<Encadenamiento><PrimerRegistro>S</PrimerRegistro></Encadenamiento>`;
@@ -39,7 +42,8 @@ function desgloseIvaXml(lines) {
   ).join("");
 }
 function buildTicketXml(i) {
-  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor><TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura><DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${escapeXml(i.softwareNombre)}</NombreRazon><NIF>${escapeXml(i.softwareNif)}</NIF><NombreSistemaInformatico>${escapeXml(i.softwareNombre)}</NombreSistemaInformatico><IdSistemaInformatico>${escapeXml(i.softwareId)}</IdSistemaInformatico><Version>${escapeXml(i.softwareVersion)}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${escapeXml(i.fechaHora)}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${escapeXml(i.hash)}</HuellaRegistro></RegistroFacturacion>`;
+  const destinatariosBlock = i.destinatario ? buildDestinatariosXml(i.destinatario) : "";
+  return `<RegistroFacturacion><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor>${destinatariosBlock}<TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura><DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion><Desglose>${desgloseIvaXml(i.desgloseIva)}</Desglose><CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>${encadenamiento(i)}<SistemaInformatico><NombreRazon>${escapeXml(i.softwareNombre)}</NombreRazon><NIF>${escapeXml(i.softwareNif)}</NIF><NombreSistemaInformatico>${escapeXml(i.softwareNombre)}</NombreSistemaInformatico><IdSistemaInformatico>${escapeXml(i.softwareId)}</IdSistemaInformatico><Version>${escapeXml(i.softwareVersion)}</Version><NumeroInstalacion>1</NumeroInstalacion><TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu><TipoUsoPosibleMultiOT>N</TipoUsoPosibleMultiOT><IndicadorMultiplesOT>N</IndicadorMultiplesOT></SistemaInformatico><FechaHoraHusoHorarioSistema>${escapeXml(i.fechaHora)}</FechaHoraHusoHorarioSistema><NumRegistro>${i.numRegistro}</NumRegistro><HuellaRegistro>${escapeXml(i.hash)}</HuellaRegistro></RegistroFacturacion>`;
 }
 
 // src/index.ts
@@ -74,11 +78,12 @@ function assertChainInput(input) {
 async function buildTicketFiscalData(input) {
   assertChainInput(input);
   const fecha = formatFecha(input.fecha);
+  const tipoFactura = input.destinatario ? "F1" : "F2";
   const hashStr = buildHashInput({
     nif: input.config.nif,
     numSerie: input.numSerie,
     fecha,
-    tipoFactura: "F2",
+    tipoFactura,
     cuotaTotal: input.cuotaTotal,
     importeTotal: input.importeTotal,
     previousHash: input.previousHash
@@ -95,14 +100,15 @@ async function buildTicketFiscalData(input) {
     fecha,
     fechaHora: formatFechaHora(input.fecha),
     numRegistro: input.numRegistro,
-    tipoFactura: "F2",
+    tipoFactura,
     descripcion: "Venda de productes",
     desgloseIva: input.desgloseIva,
     cuotaTotal: input.cuotaTotal,
     importeTotal: input.importeTotal,
     previousHash: input.previousHash,
     hash,
-    esPrimerRegistro: input.esPrimerRegistro
+    esPrimerRegistro: input.esPrimerRegistro,
+    ...input.destinatario !== void 0 ? { destinatario: input.destinatario } : {}
   };
   const xml = buildTicketXml(xmlInput);
   const qrUrl = buildQrUrl({
@@ -131,7 +137,8 @@ async function buildBatchFiscalData(inputs, startingHash) {
       cuotaTotal: input.cuotaTotal,
       importeTotal: input.importeTotal,
       previousHash: currentHash,
-      esPrimerRegistro
+      esPrimerRegistro,
+      ...input.destinatario !== void 0 ? { destinatario: input.destinatario } : {}
     });
     results.push(result);
     currentHash = result.hash;

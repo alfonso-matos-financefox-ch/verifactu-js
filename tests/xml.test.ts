@@ -91,4 +91,50 @@ describe('buildTicketXml', () => {
     expect(xml).toContain('&apos;S.L.&apos;')
     expect(xml).toContain('&amp;')
   })
+
+  it('F2: no <Destinatarios> block when destinatario is absent', () => {
+    const xml = buildTicketXml(baseInput)
+    expect(xml).not.toContain('<Destinatarios>')
+    expect(xml).toContain('<TipoFactura>F2</TipoFactura>')
+  })
+
+  it('F1: includes <TipoFactura>F1</TipoFactura> when destinatario is present', () => {
+    const xml = buildTicketXml({
+      ...baseInput,
+      tipoFactura: 'F1',
+      destinatario: { nif: 'B12345678', nombre: 'Empresa Cliente S.L.' },
+    })
+    expect(xml).toContain('<TipoFactura>F1</TipoFactura>')
+  })
+
+  it('F1: includes full <Destinatarios> block with NIF and NombreRazon', () => {
+    const xml = buildTicketXml({
+      ...baseInput,
+      tipoFactura: 'F1',
+      destinatario: { nif: 'B12345678', nombre: 'Empresa Cliente S.L.' },
+    })
+    expect(xml).toContain('<Destinatarios><IDDestinatario><NombreRazon>Empresa Cliente S.L.</NombreRazon><NIF>B12345678</NIF></IDDestinatario></Destinatarios>')
+  })
+
+  it('F1: <Destinatarios> block appears before <TipoFactura> (XSD order)', () => {
+    const xml = buildTicketXml({
+      ...baseInput,
+      tipoFactura: 'F1',
+      destinatario: { nif: 'B12345678', nombre: 'Empresa Cliente S.L.' },
+    })
+    const posDestinatarios = xml.indexOf('<Destinatarios>')
+    const posTipoFactura = xml.indexOf('<TipoFactura>')
+    expect(posDestinatarios).toBeGreaterThan(-1)
+    expect(posDestinatarios).toBeLessThan(posTipoFactura)
+  })
+
+  it('F1: escapes special characters in destinatario.nombre', () => {
+    const xml = buildTicketXml({
+      ...baseInput,
+      tipoFactura: 'F1',
+      destinatario: { nif: 'B12345678', nombre: 'Bar & Hostal S.L.' },
+    })
+    expect(xml).toContain('<NombreRazon>Bar &amp; Hostal S.L.</NombreRazon>')
+    expect(xml).not.toContain('<NombreRazon>Bar & Hostal S.L.</NombreRazon>')
+  })
 })
