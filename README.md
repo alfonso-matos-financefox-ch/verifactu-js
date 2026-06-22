@@ -4,17 +4,34 @@ Generación de datos fiscales VERI\*FACTU para software de facturación español
 
 Produce hash SHA-256 encadenado + XML `RegistroFacturacion` + URL QR de verificación AEAT para cada factura emitida.
 
-**Alcance:** facturas simplificadas F2 (tickets de caja). No incluye firma .p12 ni envío SOAP — eso es responsabilidad de la Cloud Function integradora.
+**Alcance:** facturas simplificadas F2 (tickets de caja) y facturas completas F1 (B2B con destinatario). No incluye firma .p12 ni envío SOAP — eso es responsabilidad de la capa integradora.
+
+---
+
+## Aviso legal / Disclaimer
+
+> **Esta librería se proporciona exclusivamente con fines informativos y de referencia técnica.**
+>
+> - No constituye asesoramiento jurídico, fiscal ni contable.
+> - No ha sido certificada ni validada por la Agencia Tributaria (AEAT).
+> - El cumplimiento del Real Decreto 1007/2023 y la validez legal de los registros fiscales generados son **responsabilidad exclusiva del desarrollador o empresa que la integre**, quien debe verificar su adecuación a la normativa vigente antes de usar en producción.
+> - El autor no asume ninguna responsabilidad por errores, omisiones, pérdidas económicas, sanciones fiscales ni cualquier otro daño derivado del uso de este software, directo o indirecto.
+>
+> Véase también la cláusula `WITHOUT WARRANTY` de la [licencia MIT](LICENSE).
 
 ---
 
 ## Instalación
 
 ```bash
-npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
+npm install verifactu-js
 ```
 
-Requiere acceso al repo privado (SSH o token configurado en la máquina).
+O directamente desde GitHub:
+
+```bash
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.4.0
+```
 
 ## Uso
 
@@ -24,9 +41,9 @@ const { buildTicketFiscalData } = require('verifactu-js')    // CJS (Node)
 
 const { hash, xml, qrUrl } = await buildTicketFiscalData({
   config: {
-    nif: 'B62215389',
-    nombreRazon: 'GRANJA I XOCOLATERIA LA PALLARESA, S.L.',
-    softwareNif: 'B12345678',
+    nif: 'B12345678',
+    nombreRazon: 'Mi Empresa, S.L.',
+    softwareNif: 'B87654321',
     softwareNombre: 'MiTPV',
     softwareVersion: '1.0',
     softwareId: 'MITPV',
@@ -40,8 +57,8 @@ const { hash, xml, qrUrl } = await buildTicketFiscalData({
   ],
   cuotaTotal: '1.05',
   importeTotal: '12.60',
-  previousHash: '<hash del ticket anterior, o "" si es el primero>',
-  esPrimerRegistro: false,
+  previousHash: '',   // '' si es el primer registro de la cadena
+  esPrimerRegistro: true,
 })
 ```
 
@@ -56,12 +73,6 @@ const { hash, xml, qrUrl } = await buildTicketFiscalData({
 npm run test    # 14 tests
 ```
 
-## Actualizar en proyectos consumidores
+## Licencia
 
-```bash
-# En package.json del consumidor:
-# "verifactu-js": "github:alfonso-matos-financefox-ch/verifactu-js#vX.Y.Z"
-npm install github:alfonso-matos-financefox-ch/verifactu-js#vX.Y.Z
-```
-
-Nunca apuntar a `#main` — los cambios en una librería fiscal deben ser explícitos.
+[MIT](LICENSE) — © 2026 Alfonso Matos Martínez
