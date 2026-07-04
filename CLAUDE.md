@@ -1,8 +1,8 @@
 # verifactu-js
 
-Librería TypeScript que implementa los pasos 1–3 del Real Decreto 1007/2023 (Veri*Factu): hash SHA-256 encadenado, XML `RegistroFacturacion` y QR de verificación AEAT.
+Librería TypeScript que implementa la generación de registros Veri*Factu (RD 1007/2023, Orden HAC/1177/2024): huella SHA-256 encadenada, XML `RegistroAlta`/`RegistroAnulacion` conformes al XSD oficial, QR de cotejo y payload de envío (`wrapForSoap`). Conformidad verificada contra los docs oficiales AEAT (v2 — ver CHANGELOG).
 
-Usada por **pallaresa-tpv** vía `npm install github:alfonso-matos-financefox-ch/verifactu-js#vX.Y.Z`.
+Usada por **pallaresa-tpv** y **fichaje_app/functions (EasyFichi)** vía `npm install github:alfonso-matos-financefox-ch/verifactu-js#vX.Y.Z`.
 
 ## Cómo empezar — OBLIGATORIO para agentes nuevos
 

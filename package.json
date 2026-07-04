@@ -1,6 +1,6 @@
 {
   "name": "verifactu-js",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "VeriFACTU fiscal data generation — hash chain, XML, QR (RD 1007/2023)",
   "license": "MIT",
   "type": "module",

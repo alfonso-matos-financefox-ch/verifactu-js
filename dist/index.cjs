@@ -128,7 +128,15 @@ function centsToImporte(cents) {
   const dec = String(abs % 100).padStart(2, "0");
   return `${sign}${euros}.${dec}`;
 }
+var FECHA_ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 function formatFecha(d) {
+  if (typeof d === "string") {
+    if (!FECHA_ISO_RE.test(d)) {
+      throw new Error(`Invalid fecha: expected 'YYYY-MM-DD' string or Date, got '${d}'`);
+    }
+    const [yyyy2, mm2, dd2] = d.split("-");
+    return `${dd2}-${mm2}-${yyyy2}`;
+  }
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = d.getFullYear();
@@ -207,6 +215,9 @@ async function buildInvoiceRecord(input) {
   assertChain(input.esPrimerRegistro, input.registroAnterior);
   assertImporte(input.cuotaTotal, "cuotaTotal");
   assertImporte(input.importeTotal, "importeTotal");
+  if (input.desgloseIva.length === 0) {
+    throw new Error("Invalid desgloseIva: must contain at least one line (XSD requires >=1 DetalleDesglose)");
+  }
   for (const line of input.desgloseIva) {
     assertImporte(line.baseImponible, "desgloseIva.baseImponible");
     assertImporte(line.cuotaRepercutida, "desgloseIva.cuotaRepercutida");

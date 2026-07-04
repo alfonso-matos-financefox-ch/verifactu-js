@@ -3,6 +3,14 @@
 Todos los cambios notables de esta librería. Formato basado en [Keep a Changelog](https://keepachangelog.com/es/).
 **Regla fiscal:** cualquier cambio que altere hash, XML o QR generados es BREAKING → major bump y coordinación con todos los consumidores.
 
+## [2.0.1] — 2026-07-04
+
+- `fecha` (y `fechaAnulada`, `registroAnterior.fecha`) acepta también string `'YYYY-MM-DD'` usada
+  verbatim — fix del bug de TZ en servidores UTC (un `Date` de madrugada española producía la fecha
+  del día anterior en hash+XML). Recomendado para Cloud Functions.
+- `desgloseIva` vacío ahora lanza (el XSD exige ≥1 `DetalleDesglose`; antes generaba XML inválido).
+- Docs: CLAUDE.md actualizado a la terminología v2.
+
 ## [2.0.0] — 2026-07-04
 
 Reescritura de conformidad contra los documentos técnicos oficiales de AEAT (verificados y

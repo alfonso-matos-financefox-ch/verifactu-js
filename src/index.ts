@@ -34,7 +34,7 @@ export type TipoFacturaAlta = 'F1' | 'F2'
 // el bloque XML Encadenamiento/RegistroAnterior exige numSerie y fecha de la factura anterior.
 export interface RegistroAnteriorRef {
   numSerie: string
-  fecha: Date
+  fecha: FechaInput
   huella: string
   idEmisor?: string // default: config.nif (mismo obligado)
 }
@@ -42,7 +42,7 @@ export interface RegistroAnteriorRef {
 export interface FiscalInput {
   config: VerifactuConfig
   numSerie: string
-  fecha: Date
+  fecha: FechaInput
   // Instante de generación del registro (entra en el hash). Date → se formatea con el huso
   // del runtime; string → se usa tal cual (debe ser ISO 8601 con huso). Default: ahora.
   fechaHoraGenRegistro?: Date | string
@@ -66,7 +66,7 @@ export interface FiscalData {
 export interface AnulacionInput {
   config: VerifactuConfig
   numSerieAnulada: string
-  fechaAnulada: Date
+  fechaAnulada: FechaInput
   fechaHoraGenRegistro?: Date | string
   esPrimerRegistro: boolean
   registroAnterior?: RegistroAnteriorRef
@@ -89,7 +89,20 @@ export function centsToImporte(cents: number): string {
   return `${sign}${euros}.${dec}`
 }
 
-function formatFecha(d: Date): string {
+// Fecha de expedición: Date (formateo con la TZ del runtime) o string 'YYYY-MM-DD' usada
+// verbatim — recomendado en servidores UTC, donde un Date de madrugada española daría el día anterior
+export type FechaInput = Date | string
+
+const FECHA_ISO_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function formatFecha(d: FechaInput): string {
+  if (typeof d === 'string') {
+    if (!FECHA_ISO_RE.test(d)) {
+      throw new Error(`Invalid fecha: expected 'YYYY-MM-DD' string or Date, got '${d}'`)
+    }
+    const [yyyy, mm, dd] = d.split('-')
+    return `${dd}-${mm}-${yyyy}`
+  }
   const dd = String(d.getDate()).padStart(2, '0')
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const yyyy = d.getFullYear()
@@ -184,6 +197,9 @@ export async function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData
   assertChain(input.esPrimerRegistro, input.registroAnterior)
   assertImporte(input.cuotaTotal, 'cuotaTotal')
   assertImporte(input.importeTotal, 'importeTotal')
+  if (input.desgloseIva.length === 0) {
+    throw new Error('Invalid desgloseIva: must contain at least one line (XSD requires >=1 DetalleDesglose)')
+  }
   for (const line of input.desgloseIva) {
     assertImporte(line.baseImponible, 'desgloseIva.baseImponible')
     assertImporte(line.cuotaRepercutida, 'desgloseIva.cuotaRepercutida')

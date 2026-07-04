@@ -33,14 +33,14 @@ interface VerifactuConfig {
 type TipoFacturaAlta = 'F1' | 'F2';
 interface RegistroAnteriorRef {
     numSerie: string;
-    fecha: Date;
+    fecha: FechaInput;
     huella: string;
     idEmisor?: string;
 }
 interface FiscalInput {
     config: VerifactuConfig;
     numSerie: string;
-    fecha: Date;
+    fecha: FechaInput;
     fechaHoraGenRegistro?: Date | string;
     tipoFactura?: TipoFacturaAlta;
     descripcion: string;
@@ -60,7 +60,7 @@ interface FiscalData {
 interface AnulacionInput {
     config: VerifactuConfig;
     numSerieAnulada: string;
-    fechaAnulada: Date;
+    fechaAnulada: FechaInput;
     fechaHoraGenRegistro?: Date | string;
     esPrimerRegistro: boolean;
     registroAnterior?: RegistroAnteriorRef;
@@ -71,6 +71,7 @@ interface AnulacionData {
     fechaHoraGenRegistro: string;
 }
 declare function centsToImporte(cents: number): string;
+type FechaInput = Date | string;
 declare function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData>;
 declare function buildAnulacionRecord(input: AnulacionInput): Promise<AnulacionData>;
 type BatchInvoiceInput = Omit<FiscalInput, 'esPrimerRegistro' | 'registroAnterior'>;
@@ -80,4 +81,4 @@ interface BatchInvoiceResult {
 }
 declare function buildBatchInvoiceRecords(inputs: BatchInvoiceInput[], startingRef: RegistroAnteriorRef | null): Promise<BatchInvoiceResult>;
 
-export { type AnulacionData, type AnulacionInput, type BatchInvoiceInput, type BatchInvoiceResult, type CabeceraInput, type DestinatarioF1, type FiscalData, type FiscalInput, type IvaLine, type RegistroAnteriorRef, SFLR_NAMESPACE, SF_NAMESPACE, SOAP_MAX_RECORDS, type TipoFacturaAlta, type VerifactuConfig, buildAnulacionRecord, buildBatchInvoiceRecords, buildInvoiceRecord, centsToImporte, wrapForSoap };
+export { type AnulacionData, type AnulacionInput, type BatchInvoiceInput, type BatchInvoiceResult, type CabeceraInput, type DestinatarioF1, type FechaInput, type FiscalData, type FiscalInput, type IvaLine, type RegistroAnteriorRef, SFLR_NAMESPACE, SF_NAMESPACE, SOAP_MAX_RECORDS, type TipoFacturaAlta, type VerifactuConfig, buildAnulacionRecord, buildBatchInvoiceRecords, buildInvoiceRecord, centsToImporte, wrapForSoap };

@@ -131,6 +131,28 @@ describe('validación de config e input', () => {
   })
 })
 
+describe('v2.0.1 — fecha como string y desglose vacío', () => {
+  it("acepta fecha 'YYYY-MM-DD' verbatim (sin TZ del runtime)", async () => {
+    const data = await buildInvoiceRecord({ ...base, fecha: '2026-06-15' })
+    expect(data.xml).toContain('<FechaExpedicionFactura>15-06-2026</FechaExpedicionFactura>')
+    expect(data.qrUrl).toContain('fecha=15-06-2026')
+  })
+
+  it('rechaza fecha string con formato inválido', async () => {
+    await expect(buildInvoiceRecord({ ...base, fecha: '15-06-2026' })).rejects.toThrow(/Invalid fecha/)
+  })
+
+  it('fecha string y Date equivalente producen el mismo hash', async () => {
+    const a = await buildInvoiceRecord({ ...base, fecha: '2026-06-15' })
+    const b = await buildInvoiceRecord({ ...base, fecha: new Date(2026, 5, 15, 12) })
+    expect(a.hash).toBe(b.hash)
+  })
+
+  it('desgloseIva vacío → error (XSD exige >=1 DetalleDesglose)', async () => {
+    await expect(buildInvoiceRecord({ ...base, desgloseIva: [] })).rejects.toThrow(/at least one line/)
+  })
+})
+
 describe('centsToImporte', () => {
   it.each([
     [1260, '12.60'],
