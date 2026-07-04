@@ -1,140 +1,163 @@
 import { describe, it, expect } from 'vitest'
-import { buildTicketXml } from '../src/xml'
-import type { XmlInput } from '../src/xml'
+import {
+  buildRegistroAltaXml,
+  buildRegistroAnulacionXml,
+  wrapForSoap,
+  SF_NAMESPACE,
+  SFLR_NAMESPACE,
+} from '../src/xml.js'
+import type { AltaXmlInput } from '../src/xml.js'
 
-const baseInput: XmlInput = {
-  nif: 'B62215389',
-  nombreRazon: 'La Pallaresa, S.L.',
-  softwareNif: '00000000T',
-  softwareNombre: 'pallaresa-tpv',
-  softwareVersion: '1.0',
-  softwareId: 'TPV-PAL-001',
-  numSerie: 'A-2026-000001',
-  fecha: '26-05-2026',
-  fechaHora: '2026-05-26T10:30:00+02:00',
-  numRegistro: 1,
-  tipoFactura: 'F2',
-  descripcion: 'Venda de productes',
-  desgloseIva: [
-    { tipoImpositivo: '10.00', baseImponible: '10.50', cuotaRepercutida: '1.05' },
-  ],
-  cuotaTotal: '1.05',
-  importeTotal: '11.55',
-  previousHash: '',
-  hash: 'abc123def456abc123def456abc123def456abc123def456abc123def456abcd',
-  esPrimerRegistro: true,
+const HUELLA = '3C464DAF61ACB827C65FDA19F352A4E3BDC2C640E9E9FC4CC058073F38F12F60'
+
+const sistema = {
+  nombreRazon: 'FinanceFox',
+  nif: 'B00000000',
+  nombreSistema: 'pallaresa-tpv',
+  id: 'PT',
+  version: '2.0.0',
+  numeroInstalacion: '1',
 }
 
-describe('buildTicketXml', () => {
-  it('returns a string with the root element', () => {
-    const xml = buildTicketXml(baseInput)
-    expect(xml).toContain('<RegistroFacturacion>')
-    expect(xml).toContain('</RegistroFacturacion>')
+const baseAlta: AltaXmlInput = {
+  nif: 'B62215389',
+  nombreRazon: 'La Pallaresa',
+  sistema,
+  numSerie: 'A-2026-000001',
+  fecha: '15-06-2026',
+  fechaHoraGenRegistro: '2026-06-15T12:00:00+02:00',
+  tipoFactura: 'F2',
+  descripcion: 'Venda de productes',
+  desgloseIva: [{ tipoImpositivo: '10', baseImponible: '11.45', cuotaRepercutida: '1.15' }],
+  cuotaTotal: '1.15',
+  importeTotal: '12.60',
+  registroAnterior: null,
+  hash: HUELLA,
+}
+
+function orderOf(xml: string, elements: string[]): number[] {
+  return elements.map(e => {
+    const idx = xml.indexOf(`<${e}>`)
+    expect(idx, `elemento <${e}> ausente`).toBeGreaterThan(-1)
+    return idx
+  })
+}
+
+describe('buildRegistroAltaXml — conformidad XSD', () => {
+  it('raíz <RegistroAlta> con namespace SuministroInformacion', () => {
+    const xml = buildRegistroAltaXml(baseAlta)
+    expect(xml.startsWith(`<RegistroAlta xmlns="${SF_NAMESPACE}">`)).toBe(true)
+    expect(xml.endsWith('</RegistroAlta>')).toBe(true)
   })
 
-  it('includes the NIF and ticket number', () => {
-    const xml = buildTicketXml(baseInput)
-    expect(xml).toContain('<IDEmisorFactura>B62215389</IDEmisorFactura>')
-    expect(xml).toContain('<NumSerieFactura>A-2026-000001</NumSerieFactura>')
-  })
-
-  it('includes the hash as HuellaRegistro', () => {
-    const xml = buildTicketXml(baseInput)
-    expect(xml).toContain('<HuellaRegistro>abc123def456abc123def456abc123def456abc123def456abc123def456abcd</HuellaRegistro>')
-  })
-
-  it('uses PrimerRegistro=S when esPrimerRegistro is true', () => {
-    const xml = buildTicketXml(baseInput)
-    expect(xml).toContain('<PrimerRegistro>S</PrimerRegistro>')
-  })
-
-  it('uses PrimerRegistro=N and includes previous hash when not first', () => {
-    const xml = buildTicketXml({
-      ...baseInput,
-      esPrimerRegistro: false,
-      previousHash: 'prev123prev123prev123prev123prev123prev123prev123prev123prev12345',
-    })
-    expect(xml).toContain('<PrimerRegistro>N</PrimerRegistro>')
-    expect(xml).toContain('<Huella>prev123prev123prev123prev123prev123prev123prev123prev123prev12345</Huella>')
-  })
-
-  it('includes IVA breakdown', () => {
-    const xml = buildTicketXml(baseInput)
-    expect(xml).toContain('<TipoImpositivo>10.00</TipoImpositivo>')
-    expect(xml).toContain('<BaseImponibleOimporteNoSujeto>10.50</BaseImponibleOimporteNoSujeto>')
-    expect(xml).toContain('<CuotaRepercutida>1.05</CuotaRepercutida>')
-  })
-
-  it('includes ImporteTotal and CuotaTotal', () => {
-    const xml = buildTicketXml(baseInput)
-    expect(xml).toContain('<ImporteTotal>11.55</ImporteTotal>')
-    expect(xml).toContain('<CuotaTotal>1.05</CuotaTotal>')
-  })
-
-  it('escapes & in nombreRazon', () => {
-    const xml = buildTicketXml({ ...baseInput, nombreRazon: 'Bar & Cafè S.L.' })
-    expect(xml).toContain('<NombreRazonEmisor>Bar &amp; Cafè S.L.</NombreRazonEmisor>')
-    expect(xml).not.toContain('<NombreRazonEmisor>Bar & Cafè S.L.</NombreRazonEmisor>')
-  })
-
-  it('escapes < and > in descripcion', () => {
-    const xml = buildTicketXml({ ...baseInput, descripcion: 'Menú < 10€ > estiu' })
-    expect(xml).toContain('<DescripcionOperacion>Menú &lt; 10€ &gt; estiu</DescripcionOperacion>')
-  })
-
-  it('escapes double quotes and apostrophes in text fields', () => {
-    const xml = buildTicketXml({
-      ...baseInput,
-      nombreRazon: 'Bar "Test" & Cafè \'S.L.\'',
-    })
-    expect(xml).toContain('&quot;Test&quot;')
-    expect(xml).toContain('&apos;S.L.&apos;')
-    expect(xml).toContain('&amp;')
-  })
-
-  it('F2: no <Destinatarios> block when destinatario is absent', () => {
-    const xml = buildTicketXml(baseInput)
-    expect(xml).not.toContain('<Destinatarios>')
-    expect(xml).toContain('<TipoFactura>F2</TipoFactura>')
-  })
-
-  it('F1: includes <TipoFactura>F1</TipoFactura> when destinatario is present', () => {
-    const xml = buildTicketXml({
-      ...baseInput,
+  it('secuencia de elementos según el XSD', () => {
+    const xml = buildRegistroAltaXml({
+      ...baseAlta,
       tipoFactura: 'F1',
-      destinatario: { nif: 'B12345678', nombre: 'Empresa Cliente S.L.' },
+      destinatario: { nif: 'B11111111', nombre: 'Cliente SL' },
     })
-    expect(xml).toContain('<TipoFactura>F1</TipoFactura>')
+    const positions = orderOf(xml, [
+      'IDVersion',
+      'IDFactura',
+      'NombreRazonEmisor',
+      'TipoFactura',
+      'DescripcionOperacion',
+      'Destinatarios',
+      'Desglose',
+      'CuotaTotal',
+      'ImporteTotal',
+      'Encadenamiento',
+      'SistemaInformatico',
+      'FechaHoraHusoGenRegistro',
+      'TipoHuella',
+      'Huella',
+    ])
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
   })
 
-  it('F1: includes full <Destinatarios> block with NIF and NombreRazon', () => {
-    const xml = buildTicketXml({
-      ...baseInput,
-      tipoFactura: 'F1',
-      destinatario: { nif: 'B12345678', nombre: 'Empresa Cliente S.L.' },
-    })
-    expect(xml).toContain('<Destinatarios><IDDestinatario><NombreRazon>Empresa Cliente S.L.</NombreRazon><NIF>B12345678</NIF></IDDestinatario></Destinatarios>')
+  it('DetalleDesglose con ClaveRegimen y CalificacionOperacion por defecto (01/S1)', () => {
+    const xml = buildRegistroAltaXml(baseAlta)
+    expect(xml).toContain(
+      '<DetalleDesglose><ClaveRegimen>01</ClaveRegimen><CalificacionOperacion>S1</CalificacionOperacion><TipoImpositivo>10</TipoImpositivo><BaseImponibleOimporteNoSujeto>11.45</BaseImponibleOimporteNoSujeto><CuotaRepercutida>1.15</CuotaRepercutida></DetalleDesglose>',
+    )
   })
 
-  it('F1: <Destinatarios> block appears before <TipoFactura> (XSD order)', () => {
-    const xml = buildTicketXml({
-      ...baseInput,
-      tipoFactura: 'F1',
-      destinatario: { nif: 'B12345678', nombre: 'Empresa Cliente S.L.' },
-    })
-    const posDestinatarios = xml.indexOf('<Destinatarios>')
-    const posTipoFactura = xml.indexOf('<TipoFactura>')
-    expect(posDestinatarios).toBeGreaterThan(-1)
-    expect(posDestinatarios).toBeLessThan(posTipoFactura)
+  it('Encadenamiento es choice: primer registro → solo PrimerRegistro', () => {
+    const xml = buildRegistroAltaXml(baseAlta)
+    expect(xml).toContain('<Encadenamiento><PrimerRegistro>S</PrimerRegistro></Encadenamiento>')
+    expect(xml).not.toContain('<RegistroAnterior>')
   })
 
-  it('F1: escapes special characters in destinatario.nombre', () => {
-    const xml = buildTicketXml({
-      ...baseInput,
-      tipoFactura: 'F1',
-      destinatario: { nif: 'B12345678', nombre: 'Bar & Hostal S.L.' },
+  it('Encadenamiento es choice: encadenado → solo RegistroAnterior, con datos de la factura ANTERIOR', () => {
+    const xml = buildRegistroAltaXml({
+      ...baseAlta,
+      numSerie: 'A-2026-000002',
+      registroAnterior: {
+        idEmisor: 'B62215389',
+        numSerie: 'A-2026-000001',
+        fecha: '14-06-2026',
+        huella: HUELLA,
+      },
     })
-    expect(xml).toContain('<NombreRazon>Bar &amp; Hostal S.L.</NombreRazon>')
-    expect(xml).not.toContain('<NombreRazon>Bar & Hostal S.L.</NombreRazon>')
+    expect(xml).not.toContain('<PrimerRegistro>')
+    expect(xml).toContain(
+      `<RegistroAnterior><IDEmisorFactura>B62215389</IDEmisorFactura><NumSerieFactura>A-2026-000001</NumSerieFactura><FechaExpedicionFactura>14-06-2026</FechaExpedicionFactura><Huella>${HUELLA}</Huella></RegistroAnterior>`,
+    )
+  })
+
+  it('TipoHuella 01 + Huella; sin NumRegistro ni HuellaRegistro ni FechaHoraHusoHorarioSistema', () => {
+    const xml = buildRegistroAltaXml(baseAlta)
+    expect(xml).toContain(`<TipoHuella>01</TipoHuella><Huella>${HUELLA}</Huella>`)
+    expect(xml).not.toContain('<NumRegistro>')
+    expect(xml).not.toContain('<HuellaRegistro>')
+    expect(xml).not.toContain('FechaHoraHusoHorarioSistema')
+    expect(xml).toContain('<FechaHoraHusoGenRegistro>2026-06-15T12:00:00+02:00</FechaHoraHusoGenRegistro>')
+  })
+
+  it('escapa caracteres XML en los valores', () => {
+    const xml = buildRegistroAltaXml({ ...baseAlta, descripcion: 'Café & <dulces>' })
+    expect(xml).toContain('<DescripcionOperacion>Café &amp; &lt;dulces&gt;</DescripcionOperacion>')
+  })
+})
+
+describe('buildRegistroAnulacionXml', () => {
+  it('estructura IDFactura con campos *Anulada y encadenamiento', () => {
+    const xml = buildRegistroAnulacionXml({
+      nif: 'B62215389',
+      sistema,
+      numSerieAnulada: 'A-2026-000002',
+      fechaAnulada: '15-06-2026',
+      fechaHoraGenRegistro: '2026-06-15T13:00:00+02:00',
+      registroAnterior: {
+        idEmisor: 'B62215389',
+        numSerie: 'A-2026-000002',
+        fecha: '15-06-2026',
+        huella: HUELLA,
+      },
+      hash: HUELLA,
+    })
+    expect(xml.startsWith(`<RegistroAnulacion xmlns="${SF_NAMESPACE}">`)).toBe(true)
+    expect(xml).toContain('<IDEmisorFacturaAnulada>B62215389</IDEmisorFacturaAnulada>')
+    expect(xml).toContain('<NumSerieFacturaAnulada>A-2026-000002</NumSerieFacturaAnulada>')
+    expect(xml).toContain('<FechaExpedicionFacturaAnulada>15-06-2026</FechaExpedicionFacturaAnulada>')
+    expect(xml).toContain('<TipoHuella>01</TipoHuella>')
+  })
+})
+
+describe('wrapForSoap', () => {
+  it('envelope RegFactuSistemaFacturacion con Cabecera y RegistroFactura', () => {
+    const record = buildRegistroAltaXml(baseAlta)
+    const soap = wrapForSoap([record], { obligado: { nombreRazon: 'La Pallaresa', nif: 'B62215389' } })
+    expect(soap.startsWith(`<sfLR:RegFactuSistemaFacturacion xmlns:sfLR="${SFLR_NAMESPACE}" xmlns:sf="${SF_NAMESPACE}">`)).toBe(true)
+    expect(soap).toContain(
+      '<sfLR:Cabecera><sf:ObligadoEmision><sf:NombreRazon>La Pallaresa</sf:NombreRazon><sf:NIF>B62215389</sf:NIF></sf:ObligadoEmision></sfLR:Cabecera>',
+    )
+    expect(soap).toContain(`<sfLR:RegistroFactura>${record}</sfLR:RegistroFactura>`)
+  })
+
+  it('rechaza batch vacío y batch > 1000', () => {
+    const cab = { obligado: { nombreRazon: 'X', nif: 'B62215389' } }
+    expect(() => wrapForSoap([], cab)).toThrow(/must not be empty/)
+    expect(() => wrapForSoap(Array(1001).fill('<x/>'), cab)).toThrow(/max 1000/)
   })
 })

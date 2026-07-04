@@ -2,49 +2,50 @@
 
 > Documento de referencia funcional. Describe QUÉ hace la librería, para quién y con qué reglas de negocio. No contiene código. Destino: desarrolladores que integren o mantengan la librería.
 
+> **v2.0.0 (2026-07-04):** conformidad verificada contra los documentos técnicos oficiales de AEAT
+> (huella v0.1.2, QR v0.5.0, XSD SuministroInformacion/SuministroLR). Ver `CHANGELOG.md`.
+
 ---
 
 ## 1. Contexto legal
 
-**Real Decreto 1007/2023** (Reglamento Veri*Factu) obliga a los sistemas informáticos de facturación españoles a generar un registro verificable por la AEAT para cada factura emitida. El mecanismo se llama **VERI*FACTU** y consiste en:
+**Real Decreto 1007/2023** (Reglamento Veri*Factu), desarrollado por la **Orden HAC/1177/2024** y los
+documentos técnicos de AEAT, obliga a los sistemas informáticos de facturación españoles a generar un
+registro verificable por la AEAT para cada factura emitida:
 
-1. Calcular un hash SHA-256 encadenado con el registro anterior (cadena de bloques simplificada).
-2. Generar un XML `RegistroFacturacion` con los datos fiscales y el hash.
-3. Incluir un QR en el documento impreso que enlaza al portal de verificación de la AEAT.
-4. (Opcional en la fase actual) Enviar el XML firmado a la AEAT vía SOAP.
+1. Calcular un hash SHA-256 encadenado con el registro anterior.
+2. Generar un XML `RegistroAlta` (o `RegistroAnulacion`) conforme al XSD `SuministroInformacion.xsd`.
+3. Incluir un QR en el documento impreso que enlaza al servicio de cotejo de la AEAT.
+4. (Sistemas VERI*FACTU) Enviar los registros a la AEAT vía SOAP.
 
-`verifactu-js` implementa los pasos 1, 2 y 3. El paso 4 (envío SOAP con certificado .p12) queda fuera del alcance de esta librería y es responsabilidad de la Cloud Function del sistema que la integre.
+`verifactu-js` implementa los pasos 1, 2 y 3, más el payload de envío (`wrapForSoap`). El transporte
+SOAP, el certificado y la firma quedan fuera del alcance y son responsabilidad del integrador.
 
 ---
 
 ## 2. Qué hace esta librería
 
-Dada la información de una factura, produce tres artefactos:
+Dada la información de una factura, produce estos artefactos:
 
 | Artefacto | Descripción |
 |-----------|-------------|
-| `hash` | Cadena hex de 64 caracteres (SHA-256) encadenada con el hash del registro anterior |
-| `xml` | XML `<RegistroFacturacion>` v1.0 listo para firmar y enviar a la AEAT |
-| `qrUrl` | URL de verificación AEAT (prod o pre-prod según `testMode`) |
+| `hash` | Hex 64 chars MAYÚSCULAS (SHA-256), encadenado según el doc oficial de huella |
+| `xml` | `<RegistroAlta>` (o `<RegistroAnulacion>`) que valida contra el XSD oficial |
+| `qrUrl` | URL del servicio de cotejo AEAT `TIKE-CONT/ValidarQR` (prod o pre según `testMode`) |
+| `fechaHoraGenRegistro` | Instante de generación usado en el hash — **debe persistirse** |
 
-Estos artefactos se almacenan en el ticket/factura y se usan para:
-- Imprimir el QR en el documento físico (papel o pantalla).
-- Enviar el XML firmado a la AEAT cuando esté disponible el certificado .p12.
-- Cumplir el requisito de cadena de hashes auditable.
-
-**La librería NO envía nada a la AEAT.** No hay función `submit()`, no hay cliente SOAP, no hay mock de envío. El envío es responsabilidad del sistema integrador (Cloud Function en el caso de `pallaresa-tpv`).
+**La librería NO envía nada a la AEAT.** `wrapForSoap` produce el payload `RegFactuSistemaFacturacion`,
+pero el envío (endpoint, mTLS, firma) es del sistema integrador.
 
 ### Flag `testMode`
 
-`VerifactuConfig.testMode: boolean` (default `false`) controla el entorno:
-
 | | Producción (`false`) | Pre-producción (`true`) |
 |---|---|---|
-| `qrUrl` base | `www2.agenciatributaria.gob.es` | `prewww2.aeat.es` |
+| `qrUrl` base | `www2.agenciatributaria.gob.es/wlpl/TIKE-CONT/ValidarQR` | `prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR` |
 | XML | idéntico | idéntico |
 | SOAP endpoint (CF) | `www1.agenciatributaria.gob.es/…/VerifactuSOAP` | `prewww1.aeat.es/…/VerifactuSOAP` |
 
-El XML no cambia entre entornos. La distinción test/prod en el protocolo SOAP la hace la Cloud Function eligiendo el endpoint correcto.
+El XML no cambia entre entornos; la distinción test/prod en SOAP la hace la Cloud Function con el endpoint.
 
 ---
 
@@ -52,47 +53,56 @@ El XML no cambia entre entornos. La distinción test/prod en el protocolo SOAP l
 
 ### 3.1 TPV de caja (pallaresa-tpv)
 
-**En cada cobro (offline-first):** `issueTicket()` llama a `buildTicketFiscalData()` pasando el hash del ticket anterior almacenado en `tpv_config/main.lastHash`. El resultado (`hash`, `xml`, `qrUrl`) se guarda en `tpv_tickets/{id}` con `aeatStatus: 'pending'`. La cadena de hashes se actualiza en Firestore dentro de una transacción atómica.
+**En cada cobro (offline-first):** `issueTicket()` llama a `buildInvoiceRecord()` pasando
+`registroAnterior` (numSerie + fecha + huella del último ticket, persistidos en `tpv_config/main`).
+El resultado (`hash`, `xml`, `qrUrl`, `fechaHoraGenRegistro`) se guarda en `tpv_tickets/{id}`.
 
-**En el batch periódico (Cloud Function ~30 min):** la CF usa `buildBatchFiscalData()` si necesita recalcular la cadena para tickets que aún no tienen hash, pasando `tpv_config/main.lastHash` como `startingHash`. Guarda el `lastHash` resultante de vuelta en Firestore. El XML firmado se envía al endpoint SOAP de la AEAT.
+**En el batch periódico (Cloud Function ~30 min):** la CF puede usar `buildBatchInvoiceRecords()` con
+el `lastRef` persistido, y `wrapForSoap()` para construir el payload del envío.
 
 ### 3.2 Facturas de EasyFichi
 
-Las facturas emitidas desde EasyFichi pueden ser:
-- **F2** (al consumidor final): sin `destinatario` en `FiscalInput`.
-- **F1** (B2B): pasar `destinatario: { nif, nombre }` cuando la factura tenga `terceroId`/`terceroCif`. La librería incluirá automáticamente el bloque `<Destinatarios>` en el XML y usará `TipoFactura=F1` en el hash.
+- **F2** (consumidor final): sin `destinatario`.
+- **F1** (B2B): pasar `destinatario: { nif, nombre }`; la librería incluye `<Destinatarios>` y usa
+  `TipoFactura=F1` en el hash. `descripcion` es obligatoria (cada cliente pasa la suya).
+- **Anulaciones**: `buildAnulacionRecord()` consume un eslabón de la misma cadena.
 
-La Cloud Function de facturación llama a `buildTicketFiscalData()` en Node.js usando el módulo CJS (`require('verifactu-js')`).
-
-La cadena de hashes de EasyFichi es **independiente** de la cadena del TPV — son dos sistemas de facturación distintos con sus propias series.
+La cadena de hashes de EasyFichi es **independiente por empresa** y de la cadena del TPV — cada
+obligado tributario tiene su propia cadena. Requisito del integrador: leer y actualizar la referencia
+`{numSerie, fecha, huella}` del último registro de forma **atómica** (transacción) para evitar
+bifurcar la cadena con emisiones concurrentes.
 
 ---
 
 ## 4. Alcance y limitaciones
 
 ### Lo que cubre
-- Facturas simplificadas tipo **F2** (tickets de caja, facturas al consumidor final, sin datos del destinatario).
-- Facturas completas tipo **F1** (B2B con datos del destinatario: NIF + razón social). Pasar `destinatario` en `FiscalInput` activa automáticamente F1; omitirlo produce F2. La API es backward-compatible.
-- Cadena hash SHA-256 con la concatenación exacta exigida por el RD 1007/2023 (el `TipoFactura` entra en el hash, por lo que F1 y F2 producen hashes distintos).
-- XML `RegistroFacturacion` versión 1.0 con bloque `<Destinatarios>` en F1.
-- URL QR del portal de verificación de la AEAT (idéntica para F1 y F2).
+- Facturas **F2** (simplificadas) y **F1** (B2B con destinatario NIF español).
+- Registros de **anulación** con su fórmula de huella oficial.
+- Cadena de huellas conforme al doc oficial AEAT (vectores oficiales en tests).
+- XML conforme al XSD oficial (validación xmllint en CI) + payload `RegFactuSistemaFacturacion`.
+- URL QR del servicio de cotejo oficial.
 
 ### Lo que NO cubre
-- Firma XML con certificado .p12 — responsabilidad de la Cloud Function integradora.
-- Comunicación SOAP con los endpoints de la AEAT — ídem. No hay `submit()`.
-- Mock de envío AEAT — el integrador implementa su propio mock si lo necesita.
-- Rectificativas (tipo R1–R5) — no implementadas.
-- Validación de NIF/CIF — la librería confía en que los datos de entrada son correctos.
+- Firma XML y comunicación SOAP — responsabilidad del integrador.
+- Rectificativas (R1–R5) — el XSD las contempla; previstas para v2.1 (`tipoFactura` + bloques
+  `TipoRectificativa`/`FacturasRectificadas`/`ImporteRectificacion`).
+- Destinatarios sin NIF español (`IDOtro` — pasaporte, VAT intracomunitario).
+- Registros de evento (obligatorios solo para sistemas NO Verifactu).
+- Validación de NIF/CIF — la librería confía en los datos del integrador (sí valida formatos:
+  importes, huella, ISO 8601, longitud de `softwareId`).
 
 ---
 
 ## 5. Política de versioning
 
-Los cambios en el algoritmo de hash o en el formato XML son **cambios fiscales** y deben tratarse con la máxima precaución:
+Los cambios en hash, XML o QR generados son **cambios fiscales**:
 
-- Cualquier cambio que afecte al output del hash o del XML implica una versión mayor (`v2.0.0`).
-- Los sistemas integradores deben actualizar el tag explícitamente (`#v2.0.0`) — nunca usar `main` ni un rango semver automático.
-- Antes de actualizar en producción: verificar que los hashes generados con la nueva versión son aceptados por el validador de la AEAT.
+- Major bump obligatorio (los golden tests actúan de tripwire).
+- Los integradores actualizan por tag explícito (`#v2.0.0`) — nunca `main` ni rangos semver.
+- Un único mecanismo de distribución: `github:…#tag`. No vendorizar tarballs (causó que EasyFichi
+  quedara en v1.1.0 sin F1 creyendo estar en v1.3.1).
+- Todo cambio se anota en `CHANGELOG.md` con su sección de migración.
 
 ---
 
@@ -100,13 +110,13 @@ Los cambios en el algoritmo de hash o en el formato XML son **cambios fiscales**
 
 | Campo | Formato | Ejemplo |
 |-------|---------|---------|
-| `fecha` | Calculado internamente desde `Date` | — |
-| `cuotaTotal` | String decimal, separador punto, 2 decimales | `"1.05"` |
-| `importeTotal` | String decimal, separador punto, 2 decimales | `"12.60"` |
+| `fecha` | `Date` — la librería formatea DD-MM-YYYY | — |
+| `fechaHoraGenRegistro` | `Date`, o string ISO 8601 **con huso** (validado) | `"2026-06-15T12:00:00+02:00"` |
+| `cuotaTotal` / `importeTotal` / bases / cuotas | String, punto decimal, **exactamente 2 decimales** (validado) | `"12.60"` |
 | `desgloseIva[].tipoImpositivo` | String porcentaje sin símbolo | `"10"` |
-| `desgloseIva[].baseImponible` | String decimal, 2 decimales | `"11.55"` |
-| `desgloseIva[].cuotaRepercutida` | String decimal, 2 decimales | `"1.05"` |
-| `previousHash` | Hex 64 chars del registro anterior, o `""` si es el primero | `"a3f2..."` o `""` |
-| `esPrimerRegistro` | `true` solo para el primer registro de la cadena | `false` |
+| `registroAnterior.huella` | Hex 64 chars **MAYÚSCULAS** (validado) | `"3C46…F60"` |
+| `softwareId` | Máx. 2 caracteres (validado — límite del XSD) | `"PT"` |
 
-**Importante:** los importes son strings, no numbers, para evitar errores de redondeo flotante. El sistema integrador es responsable de formatearlos correctamente antes de llamar a la librería.
+**Importante:** los importes son strings para evitar redondeo flotante. Para clientes que trabajan en
+centavos: `centsToImporte(1260) → '12.60'`. La validación de formato es estricta porque `'12.6'` y
+`'12.60'` producen huellas distintas.

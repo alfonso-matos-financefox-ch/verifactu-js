@@ -7,83 +7,75 @@ description: Guía de orientación para trabajar en la librería verifactu-js. U
 
 ## Qué es esto
 
-Librería TypeScript **sin dependencias runtime** que implementa los pasos 1–3 del Real Decreto 1007/2023 (Veri*Factu):
-1. Hash SHA-256 encadenado (cadena de bloques simplificada)
-2. XML `<RegistroFacturacion>` v1.0
-3. URL QR de verificación AEAT
+Librería TypeScript **sin dependencias runtime** que implementa la generación de registros Veri*Factu
+(RD 1007/2023, Orden HAC/1177/2024) conforme a los **documentos técnicos oficiales de AEAT**:
+1. Huella SHA-256 encadenada (formato oficial `campo=valor&…`, hex MAYÚSCULAS)
+2. XML `<RegistroAlta>` / `<RegistroAnulacion>` conformes al XSD `SuministroInformacion.xsd`
+3. URL QR del servicio de cotejo `TIKE-CONT/ValidarQR`
+4. `wrapForSoap()` — payload `RegFactuSistemaFacturacion` para el envío
 
-**No hay `submit()`, no hay SOAP, no hay mock de envío.** El envío es responsabilidad del sistema integrador (Cloud Function en EasyFichi/pallaresa-tpv).
+**No hay transporte SOAP ni firma.** El envío es responsabilidad del integrador (Cloud Function).
 
-## Tipos de factura soportados
+**Fuentes oficiales verificadas (2026-07-04)** — specs y URLs en
+`docs/superpowers/specs/2026-07-04-v2-conformidad-aeat.md`; XSDs oficiales en `tests/schemas/`.
+**Ante cualquier duda sobre el formato fiscal, consultar esas fuentes, NO el conocimiento del modelo**
+(así se introdujeron los errores de v1.x).
 
-| Tipo | Campo | Comportamiento |
-|------|-------|----------------|
-| F2 | `destinatario` ausente | Simplificada / consumidor final. Sin bloque `<Destinatarios>` en XML. |
-| F1 | `destinatario?: { nif, nombre }` presente | Completa B2B. Incluye `<Destinatarios>` antes de `<TipoFactura>` (orden XSD). |
+## API v2 (breaking respecto a v1 — ver CHANGELOG.md)
 
-La API es **backward-compatible**: omitir `destinatario` → F2 exactamente como antes.
-
-## Ficheros clave — lee estos antes de tocar código
-
-```
-src/index.ts   API pública: FiscalInput, FiscalData, buildTicketFiscalData, buildBatchFiscalData
-src/hash.ts    buildHashInput() + computeHash() — SHA-256 vía crypto.subtle
-src/xml.ts     buildTicketXml() + DestinatarioF1 + buildDestinatariosXml() (SRP helper)
-src/qr.ts      buildQrUrl() — sin diferencia entre F1/F2
-```
+| Función | Uso |
+|---------|-----|
+| `buildInvoiceRecord(input)` | Una factura F1/F2 → `{hash, xml, qrUrl, fechaHoraGenRegistro}` |
+| `buildBatchInvoiceRecords(inputs, startingRef)` | N facturas encadenadas → `{results, lastRef}` |
+| `buildAnulacionRecord(input)` | Registro de anulación (misma cadena) |
+| `wrapForSoap(records, cabecera)` | Payload de envío (máx. 1000 registros) |
+| `centsToImporte(cents)` | 1260 → `'12.60'` para clientes en centavos |
 
 ## Invariantes críticas
 
-- **`exactOptionalPropertyTypes: true`** en tsconfig. No asignar `campo: value | undefined` directamente — usar spread condicional: `...(x !== undefined ? { campo: x } : {})`.
-- **El `TipoFactura` entra en el hash.** F1 y F2 producen hashes distintos para los mismos datos. Es deliberado.
-- **El bloque `<Destinatarios>` va antes de `<TipoFactura>`** en el XML (orden XSD exigido por la AEAT).
-- **Importes como strings** (`"1.05"`, no `1.05`) — evitar aritmética flotante en datos fiscales.
-- **`dist/` se commitea en git** — es necesario para instalación vía `github:` sin paso de build.
-- **Nunca `#main`** en consumidores — siempre tag explícito (`#v1.4.0`).
+- **`fechaHoraGenRegistro` ENTRA EN EL HASH** — es parámetro (o default now) y se devuelve para
+  que el cliente lo persista. Nunca regenerarla para un registro ya emitido.
+- **El encadenamiento necesita `{numSerie, fecha, huella}` del registro anterior** (no solo el hash):
+  el XML `RegistroAnterior` exige los tres. Los clientes persisten `RegistroAnteriorRef` completo.
+- **Huellas en hex MAYÚSCULAS** — la validación rechaza lowercase (formato oficial AEAT).
+- **Importes: string con punto y 2 decimales exactos, validados** — `'12.6'` ≠ `'12.60'` en el hash.
+- **`softwareId` máx. 2 chars** (XSD `TextMax2Type`) — se valida y lanza.
+- **`Encadenamiento` es choice** — `PrimerRegistro` O `RegistroAnterior`, nunca ambos.
+- **`descripcion` es obligatoria** — no hay default hardcodeado (multi-cliente).
+- **`exactOptionalPropertyTypes: true`** — spread condicional para opcionales: `...(x !== undefined ? { campo: x } : {})`.
+- **`dist/` se commitea** — necesario para `npm install github:…#tag` sin build.
+- **Nunca `#main` ni tarballs vendorizados** en consumidores — siempre tag explícito. (El tarball
+  vendorizado dejó a EasyFichi en v1.1.0 sin F1 creyendo estar en v1.3.1.)
 
 ## Flujo de desarrollo
 
 ```bash
-# 1. Cambios en src/ + tests/
-npx vitest run          # todos los tests deben pasar (golden.test.ts = tests fiscales — si fallan es BREAKING)
-
-# 2. Build obligatorio antes del commit
-npm run build           # regenera dist/ (ESM + CJS + tipos)
-
-# 3. Commit con dist/ incluido
-git add src/ tests/ dist/ package.json
+npx vitest run   # 54 tests: vectores oficiales AEAT + validación XSD (xmllint) + goldens
+npm run build    # regenera dist/ — SIEMPRE antes de commit con cambios en src/
+git add src/ tests/ dist/ package.json CHANGELOG.md
 git commit -m "feat/fix: descripción"
-
-# 4. Tag semántico
-git tag vX.Y.Z
-git push origin main && git push origin vX.Y.Z
+git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z
 ```
 
-## Al añadir soporte para un nuevo tipo de factura o cambiar el hash/XML
+Golden test fallando = cambio fiscal = major bump + entrada de migración en CHANGELOG.md +
+coordinación con TODOS los consumidores (sus cadenas quedan invalidadas).
 
-1. Actualizar `src/hash.ts` si cambia el algoritmo de concatenación.
-2. Actualizar `src/xml.ts` añadiendo helper SRP por cada nuevo bloque XML.
-3. Actualizar `src/index.ts` — derivar nuevos campos, no hardcodearlos.
-4. Añadir tests en `tests/xml.test.ts` y `tests/hash.test.ts`.
-5. Calcular el nuevo golden hash: `printf '%s' '<hash-input-string>' | shasum -a 256`.
-6. Añadir golden en `tests/golden.test.ts`.
-7. **Actualizar `BIBLE-FUNCTIONAL.md` y `BIBLE-TECHNICAL.md`** — son la fuente de verdad.
+## Al cambiar hash/XML
 
-## Al añadir un nuevo campo opcional a FiscalInput/XmlInput
-
-- Declararlo como `campo?: Tipo` (no `campo?: Tipo | undefined`) — `exactOptionalPropertyTypes`.
-- Propagarlo con spread condicional en todas las capas (index → xml).
-- Verificar que `BatchFiscalInput` lo hereda correctamente (es `Omit<FiscalInput, 'previousHash' | 'esPrimerRegistro'>`).
-- Si afecta al hash o al XML: **es un cambio fiscal** → nueva versión mayor.
+1. **Verificar primero contra los docs oficiales** (spec 2026-07-04 + XSDs en tests/schemas/).
+2. Los vectores oficiales de `tests/hash.test.ts` NO se tocan jamás (son de AEAT).
+3. La validación XSD (`tests/xsd.test.ts`) debe seguir pasando.
+4. Actualizar goldens + CHANGELOG + Biblias.
 
 ## Consumidores actuales
 
-| Proyecto | Uso | Campo `destinatario` |
-|----------|-----|----------------------|
-| `pallaresa-tpv` | TPV caja, tickets físicos | Nunca (siempre F2) |
-| `easyfichi/functions` | Facturas B2B y consumidor | Cuando `terceroId`/`terceroCif` presente → F1 |
+| Proyecto | Uso | Estado |
+|----------|-----|--------|
+| `pallaresa-tpv` | TPV caja, F2 vía cliente browser + CF batch | Pin `github:#tag` — migrar a v2 antes del reset de producción |
+| `fichaje_app/functions` | Facturas F1/F2 multi-empresa | ⚠️ tarball vendorizado v1.1.0 — migrar a v2 + eliminar doble cadena (ver auditoría 2026-07-04 en pallaresa-tpv/.planning/) |
 
-## Tests de referencia
+## Roadmap
 
-- `tests/golden.test.ts` — golden F2: hash `af6861d6...`; golden F1: hash `81cc57f1...`
-- Un fallo en golden = cambio fiscal = bump de versión mayor requerido.
+- v2.1: rectificativas R1–R5 (`TipoRectificativa`, `FacturasRectificadas`, `ImporteRectificacion`),
+  destinatarios `IDOtro` (VAT intracomunitario/pasaporte).
+- Pendiente de decisión: registro en AEAT de `softwareId`/NIF reales antes de 2027-01-01.

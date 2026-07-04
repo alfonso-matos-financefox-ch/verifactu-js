@@ -1,143 +1,69 @@
-/**
- * Golden tests — fixed input must always produce the exact same fiscal artifacts.
- * Any change in hash, XML structure, or QR URL that affects these tests is a
- * FISCAL CHANGE and must be treated as a breaking change (bump major version).
- *
- * Note: FechaHoraHusoHorarioSistema depends on the runtime timezone, so the full
- * XML is not asserted here. Hash and qrUrl are fully timezone-independent.
- */
 import { describe, it, expect } from 'vitest'
-import { buildTicketFiscalData, buildBatchFiscalData } from '../src/index'
-import type { VerifactuConfig } from '../src/index'
+import { buildInvoiceRecord, buildAnulacionRecord } from '../src/index.js'
+import type { FiscalInput, VerifactuConfig } from '../src/index.js'
+
+// GOLDEN TESTS — si alguno falla, el artefacto fiscal ha cambiado: es un breaking change
+// que requiere major bump y coordinación con TODOS los consumidores (pallaresa-tpv, EasyFichi).
 
 const config: VerifactuConfig = {
   nif: 'B62215389',
-  nombreRazon: 'La Pallaresa, S.L.',
-  softwareNif: '00000000T',
-  softwareNombre: 'Pallaresa TPV',
-  softwareVersion: '1.0',
-  softwareId: 'PALLARESA-TPV-1',
-  testMode: false,
+  nombreRazon: 'Granja-Xocolateria La Pallaresa',
+  softwareNif: 'B00000000',
+  softwareNombre: 'pallaresa-tpv',
+  softwareVersion: '2.0.0',
+  softwareId: 'PT',
+  testMode: true,
 }
 
-const GOLDEN_HASH_1 = 'af6861d67d78c56f5dfdc54eb377ead606d0202d410230046ed976036b826cdf'
-const GOLDEN_HASH_2 = '3ba4849105fd31e5ad2b9d026b3be685c8c8281d2e73f1cfd45402b546b10f79'
+const f2Input: FiscalInput = {
+  config,
+  numSerie: 'A-2026-000001',
+  fecha: new Date(2026, 5, 15),
+  fechaHoraGenRegistro: '2026-06-15T12:00:00+02:00',
+  descripcion: 'Venda de productes',
+  desgloseIva: [{ tipoImpositivo: '10', baseImponible: '11.45', cuotaRepercutida: '1.15' }],
+  cuotaTotal: '1.15',
+  importeTotal: '12.60',
+  esPrimerRegistro: true,
+}
 
-describe('golden — single ticket', () => {
-  it('produces the exact expected hash for a known first invoice', async () => {
-    const { hash } = await buildTicketFiscalData({
-      config,
-      numSerie: 'A-2026-000001', serie: 'A',
-      fecha: new Date(2026, 0, 1, 12, 0, 0),
-      numRegistro: 1,
-      desgloseIva: [{ tipoImpositivo: '10', baseImponible: '9.09', cuotaRepercutida: '0.91' }],
-      cuotaTotal: '0.91', importeTotal: '10.00',
-      previousHash: '', esPrimerRegistro: true,
+describe('goldens v2.0.0', () => {
+  it('F2 primer registro — hash estable', async () => {
+    const { hash } = await buildInvoiceRecord(f2Input)
+    expect(hash).toBe('3D37E941387F404905FBCE1F51F914FDD58A1964CDAB5BB2C6970D36828A5288')
+  })
+
+  it('F1 encadenado — hash estable', async () => {
+    const first = await buildInvoiceRecord(f2Input)
+    const { hash, xml } = await buildInvoiceRecord({
+      ...f2Input,
+      numSerie: 'A-2026-000002',
+      fechaHoraGenRegistro: '2026-06-15T12:05:00+02:00',
+      esPrimerRegistro: false,
+      registroAnterior: { numSerie: 'A-2026-000001', fecha: new Date(2026, 5, 15), huella: first.hash },
+      destinatario: { nif: 'B11111111', nombre: 'Cliente SL' },
     })
-    expect(hash).toBe(GOLDEN_HASH_1)
-  })
-
-  it('produces the exact expected qrUrl (prod)', async () => {
-    const { qrUrl } = await buildTicketFiscalData({
-      config,
-      numSerie: 'A-2026-000001', serie: 'A',
-      fecha: new Date(2026, 0, 1, 12, 0, 0),
-      numRegistro: 1,
-      desgloseIva: [{ tipoImpositivo: '10', baseImponible: '9.09', cuotaRepercutida: '0.91' }],
-      cuotaTotal: '0.91', importeTotal: '10.00',
-      previousHash: '', esPrimerRegistro: true,
-    })
-    expect(qrUrl).toBe(
-      'https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR' +
-      '?nif=B62215389&numserie=A-2026-000001&fecha=01-01-2026&importe=10.00',
-    )
-  })
-
-  it('XML contains all expected fiscal fields (timezone-independent parts)', async () => {
-    const { xml, hash } = await buildTicketFiscalData({
-      config,
-      numSerie: 'A-2026-000001', serie: 'A',
-      fecha: new Date(2026, 0, 1, 12, 0, 0),
-      numRegistro: 1,
-      desgloseIva: [{ tipoImpositivo: '10', baseImponible: '9.09', cuotaRepercutida: '0.91' }],
-      cuotaTotal: '0.91', importeTotal: '10.00',
-      previousHash: '', esPrimerRegistro: true,
-    })
-    expect(xml).toContain(`<HuellaRegistro>${hash}</HuellaRegistro>`)
-    expect(xml).toContain('<IDEmisorFactura>B62215389</IDEmisorFactura>')
-    expect(xml).toContain('<NumSerieFactura>A-2026-000001</NumSerieFactura>')
-    expect(xml).toContain('<FechaExpedicionFactura>01-01-2026</FechaExpedicionFactura>')
-    expect(xml).toContain('<TipoFactura>F2</TipoFactura>')
-    expect(xml).toContain('<NombreRazonEmisor>La Pallaresa, S.L.</NombreRazonEmisor>')
-    expect(xml).toContain('<PrimerRegistro>S</PrimerRegistro>')
-    expect(xml).toContain('<CuotaTotal>0.91</CuotaTotal>')
-    expect(xml).toContain('<ImporteTotal>10.00</ImporteTotal>')
-    expect(xml).toContain('<IDVersion>1.0</IDVersion>')
-  })
-})
-
-const GOLDEN_HASH_F1 = '81cc57f1429ece098c6e9f326bb21cb6c63c8df4974012b8d775fad434f113d3'
-
-describe('golden — F1 invoice (B2B con destinatario)', () => {
-  const f1Input = {
-    config,
-    numSerie: 'A-2026-000001', serie: 'A',
-    fecha: new Date(2026, 0, 1, 12, 0, 0),
-    numRegistro: 1,
-    desgloseIva: [{ tipoImpositivo: '10', baseImponible: '9.09', cuotaRepercutida: '0.91' }],
-    cuotaTotal: '0.91', importeTotal: '10.00',
-    previousHash: '', esPrimerRegistro: true,
-    destinatario: { nif: 'B12345678', nombre: 'Empresa Cliente S.L.' },
-  }
-
-  it('produces a deterministic F1 hash distinct from the equivalent F2 hash', async () => {
-    const { hash } = await buildTicketFiscalData(f1Input)
-    expect(hash).toBe(GOLDEN_HASH_F1)
-    expect(hash).not.toBe(GOLDEN_HASH_1)
-  })
-
-  it('F1 XML contains TipoFactura F1 and Destinatarios block', async () => {
-    const { xml, hash } = await buildTicketFiscalData(f1Input)
+    expect(hash).toBe('5541B02E8130D3DD337C94F1E1D152CC88D0D6E005F3E7D353588E96115BFFC2')
     expect(xml).toContain('<TipoFactura>F1</TipoFactura>')
-    expect(xml).toContain('<Destinatarios><IDDestinatario><NombreRazon>Empresa Cliente S.L.</NombreRazon><NIF>B12345678</NIF></IDDestinatario></Destinatarios>')
-    expect(xml).toContain(`<HuellaRegistro>${hash}</HuellaRegistro>`)
-    expect(xml).not.toContain('<TipoFactura>F2</TipoFactura>')
   })
 
-  it('F1 qrUrl is identical to F2 for the same invoice data (QR is type-independent)', async () => {
-    const { qrUrl } = await buildTicketFiscalData(f1Input)
+  it('anulación encadenada — hash estable', async () => {
+    const first = await buildInvoiceRecord(f2Input)
+    const { hash } = await buildAnulacionRecord({
+      config,
+      numSerieAnulada: 'A-2026-000001',
+      fechaAnulada: new Date(2026, 5, 15),
+      fechaHoraGenRegistro: '2026-06-15T12:10:00+02:00',
+      esPrimerRegistro: false,
+      registroAnterior: { numSerie: 'A-2026-000001', fecha: new Date(2026, 5, 15), huella: first.hash },
+    })
+    expect(hash).toBe('86D55B172553856494295A6ABE0EF6A323F58C52EE006DFF6471F96FBA51E035')
+  })
+
+  it('QR estable', async () => {
+    const { qrUrl } = await buildInvoiceRecord(f2Input)
     expect(qrUrl).toBe(
-      'https://www2.agenciatributaria.gob.es/wlpl/TEWC-CORE/ValidarQR' +
-      '?nif=B62215389&numserie=A-2026-000001&fecha=01-01-2026&importe=10.00',
+      'https://prewww2.aeat.es/wlpl/TIKE-CONT/ValidarQR?nif=B62215389&numserie=A-2026-000001&fecha=15-06-2026&importe=12.60',
     )
-  })
-})
-
-describe('golden — batch chain', () => {
-  it('produces stable hashes for a 2-ticket chained batch', async () => {
-    const { results, lastHash } = await buildBatchFiscalData([
-      {
-        config,
-        numSerie: 'A-2026-000001', serie: 'A',
-        fecha: new Date(2026, 0, 1, 12, 0, 0),
-        numRegistro: 1,
-        desgloseIva: [{ tipoImpositivo: '10', baseImponible: '9.09', cuotaRepercutida: '0.91' }],
-        cuotaTotal: '0.91', importeTotal: '10.00',
-      },
-      {
-        config,
-        numSerie: 'A-2026-000002', serie: 'A',
-        fecha: new Date(2026, 0, 1, 13, 0, 0),
-        numRegistro: 2,
-        desgloseIva: [{ tipoImpositivo: '10', baseImponible: '4.55', cuotaRepercutida: '0.45' }],
-        cuotaTotal: '0.45', importeTotal: '5.00',
-      },
-    ], '')
-
-    expect(results[0]!.hash).toBe(GOLDEN_HASH_1)
-    expect(results[1]!.hash).toBe(GOLDEN_HASH_2)
-    expect(lastHash).toBe(GOLDEN_HASH_2)
-    // ticket 2 references ticket 1's hash in the chain
-    expect(results[1]!.xml).toContain(`<Huella>${GOLDEN_HASH_1}</Huella>`)
   })
 })

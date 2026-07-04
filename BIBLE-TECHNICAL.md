@@ -2,6 +2,9 @@
 
 > Documento de referencia técnico. Arquitectura, API pública, decisiones de diseño e invariantes. Destino: desarrolladores que mantengan o extiendan la librería.
 
+> **v2.0.0 (2026-07-04):** reescritura de conformidad contra los docs técnicos oficiales de AEAT.
+> Fuentes verificadas y detalle de divergencias v1→v2: `docs/superpowers/specs/2026-07-04-v2-conformidad-aeat.md`. Breaking changes: `CHANGELOG.md`.
+
 ---
 
 ## 1. Stack y entornos
@@ -10,8 +13,8 @@
 |---------|-------|
 | Lenguaje | TypeScript 5.x, `strict: true` |
 | Build | `tsup` (esbuild) — dual ESM + CJS |
-| Tests | Vitest 1.x, `environment: node` |
-| Runtime mínimo | Node 18+ (usa `globalThis.crypto.subtle`) / cualquier browser moderno |
+| Tests | Vitest 1.x, `environment: node`; validación XSD con `xmllint` (se omite si no está instalado) |
+| Runtime mínimo | Node ≥20 (`engines` en package.json; usa `globalThis.crypto.subtle`) / cualquier browser moderno en contexto seguro (https) |
 | Sin dependencias runtime | cero dependencias en `dependencies` |
 
 ---
@@ -23,21 +26,18 @@ Toda la API se exporta desde `src/index.ts` (único entry point).
 ### Instalación
 
 ```bash
-npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.4.0
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v2.0.0
 ```
 
 ```ts
-import { buildTicketFiscalData, buildBatchFiscalData } from 'verifactu-js'  // ESM
-const { buildTicketFiscalData, buildBatchFiscalData } = require('verifactu-js')  // CJS
+import { buildInvoiceRecord, buildBatchInvoiceRecords, buildAnulacionRecord, wrapForSoap, centsToImporte } from 'verifactu-js'
 ```
 
 ---
 
-### `buildTicketFiscalData(input: FiscalInput): Promise<FiscalData>`
+### `buildInvoiceRecord(input: FiscalInput): Promise<FiscalData>`
 
-Genera hash + XML + QR para un único ticket. El caller gestiona `previousHash` y `esPrimerRegistro`.
-
-#### Tipos de entrada
+Genera hash + XML (`RegistroAlta`) + QR para una factura. El caller gestiona el encadenamiento vía `esPrimerRegistro` / `registroAnterior`.
 
 ```ts
 interface VerifactuConfig {
@@ -46,76 +46,112 @@ interface VerifactuConfig {
   softwareNif: string      // NIF del fabricante del software
   softwareNombre: string   // Nombre del software
   softwareVersion: string  // Versión del software
-  softwareId: string       // Identificador del software en AEAT
-  testMode?: boolean       // default: false — true apunta el QR a prewww2.aeat.es
+  softwareId: string       // IdSistemaInformatico — MÁX. 2 CARACTERES (XSD TextMax2Type); se valida
+  numeroInstalacion?: string // default '1'
+  testMode?: boolean       // default false — true apunta el QR a prewww2.aeat.es
 }
 
 interface DestinatarioF1 {
-  nif: string     // NIF/CIF del destinatario (empresa o autónomo)
-  nombre: string  // Razón social o nombre completo
+  nif: string
+  nombre: string
+}
+
+// Referencia al ÚLTIMO registro emitido. El cliente debe persistir los tres campos:
+// el XML Encadenamiento/RegistroAnterior exige numSerie y fecha de la factura anterior,
+// no solo su huella.
+interface RegistroAnteriorRef {
+  numSerie: string
+  fecha: Date
+  huella: string    // hex MAYÚSCULAS 64 chars — se valida
+  idEmisor?: string // default: config.nif
 }
 
 interface FiscalInput {
   config: VerifactuConfig
-  numSerie: string              // Número de serie (ej. "A-2026-000042")
-  serie: string                 // Serie (ej. "A")
-  fecha: Date                   // Fecha de expedición (Date nativo)
-  numRegistro: number           // Número de registro en la cadena (1, 2, 3...)
-  desgloseIva: IvaLine[]        // Líneas de IVA
-  cuotaTotal: string            // Total cuota IVA ("1.05")
-  importeTotal: string          // Total factura ("12.60")
-  previousHash: string          // Hash del registro anterior ("" si es el primero)
-  esPrimerRegistro: boolean     // true solo para el primer registro de la cadena
-  destinatario?: DestinatarioF1 // Presente → F1 (B2B); ausente → F2 (consumidor final)
+  numSerie: string                       // ej. "A-2026-000042"
+  fecha: Date                            // fecha de expedición
+  fechaHoraGenRegistro?: Date | string   // instante de generación del registro — ENTRA EN EL HASH.
+                                         // Date → formateo con huso del runtime; string → verbatim
+                                         // (ISO 8601 con offset, se valida). Default: ahora.
+  tipoFactura?: 'F1' | 'F2'              // default: 'F1' si hay destinatario, 'F2' si no.
+                                         // Incoherencias (F1 sin destinatario, F2 con) lanzan.
+  descripcion: string                    // DescripcionOperacion — obligatorio (v1 lo hardcodeaba)
+  desgloseIva: IvaLine[]
+  cuotaTotal: string                     // "1.05" — punto y 2 decimales exactos, se valida
+  importeTotal: string
+  esPrimerRegistro: boolean
+  registroAnterior?: RegistroAnteriorRef // obligatorio si esPrimerRegistro === false
+  destinatario?: DestinatarioF1
 }
 
 interface IvaLine {
-  tipoImpositivo: string      // Porcentaje sin símbolo ("10", "21")
-  baseImponible: string       // Base imponible ("11.55")
-  cuotaRepercutida: string    // Cuota IVA ("1.05")
+  tipoImpositivo: string          // "10", "21" (o "10.00")
+  baseImponible: string           // → <BaseImponibleOimporteNoSujeto>
+  cuotaRepercutida: string
+  claveRegimen?: string           // default '01' (régimen general)
+  calificacionOperacion?: string  // default 'S1' (sujeta no exenta, sin inversión)
 }
-```
 
-#### Tipo de salida
-
-```ts
 interface FiscalData {
-  hash: string    // SHA-256 hex 64 chars
-  xml: string     // XML RegistroFacturacion completo (string, no DOM)
-  qrUrl: string   // URL portal verificación AEAT (prod o pre-prod según testMode)
+  hash: string                 // SHA-256 hex 64 chars MAYÚSCULAS
+  xml: string                  // <RegistroAlta xmlns="…SuministroInformacion.xsd"> — valida contra XSD
+  qrUrl: string                // servicio de cotejo TIKE-CONT (prod o prewww2 según testMode)
+  fechaHoraGenRegistro: string // el valor exacto que entró en el hash — EL CLIENTE DEBE PERSISTIRLO
 }
 ```
 
----
+### `buildAnulacionRecord(input: AnulacionInput): Promise<AnulacionData>`
 
-### `buildBatchFiscalData(inputs, startingHash): Promise<BatchFiscalResult>`
-
-Encadena hashes de N tickets en una sola llamada. Gestiona `previousHash` y `esPrimerRegistro` internamente. Usar cuando el caller procesa varios tickets de golpe (ej. Cloud Function batch del TPV).
+Registro de anulación (`RegistroAnulacion`) con su fórmula de huella propia (doc AEAT §3b). Sin QR.
+Consume un eslabón de la MISMA cadena que los registros de alta.
 
 ```ts
-async function buildBatchFiscalData(
-  inputs: BatchFiscalInput[],  // tickets sin los campos de encadenamiento
-  startingHash: string,        // "" si es el primer batch absoluto; lastHash del batch anterior en caso contrario
-): Promise<BatchFiscalResult>
+interface AnulacionInput {
+  config: VerifactuConfig
+  numSerieAnulada: string
+  fechaAnulada: Date
+  fechaHoraGenRegistro?: Date | string
+  esPrimerRegistro: boolean
+  registroAnterior?: RegistroAnteriorRef
+}
+interface AnulacionData { hash: string; xml: string; fechaHoraGenRegistro: string }
 ```
 
-#### Tipos
+### `buildBatchInvoiceRecords(inputs, startingRef): Promise<BatchInvoiceResult>`
+
+Encadena N facturas gestionando el encadenamiento internamente.
 
 ```ts
-// BatchFiscalInput = FiscalInput sin previousHash ni esPrimerRegistro
-type BatchFiscalInput = Omit<FiscalInput, 'previousHash' | 'esPrimerRegistro'>
+type BatchInvoiceInput = Omit<FiscalInput, 'esPrimerRegistro' | 'registroAnterior'>
 
-interface BatchFiscalResult {
-  results: FiscalData[]  // un FiscalData por ticket, en el mismo orden que inputs
-  lastHash: string       // hash del último registro — persistir para el próximo batch
+async function buildBatchInvoiceRecords(
+  inputs: BatchInvoiceInput[],
+  startingRef: RegistroAnteriorRef | null,  // null = inicio absoluto de cadena
+): Promise<BatchInvoiceResult>
+
+interface BatchInvoiceResult {
+  results: FiscalData[]
+  lastRef: RegistroAnteriorRef | null  // persistir para encadenar el próximo batch
 }
 ```
 
-#### Invariantes
+Invariantes: el orden de `inputs` determina la cadena; `startingRef: null` → primer input con `PrimerRegistro`; `inputs` vacío devuelve `{ results: [], lastRef: startingRef }`.
 
-- El orden de `inputs` determina el orden de la cadena. El caller ordena por fecha/numRegistro.
-- `startingHash: ""` activa `esPrimerRegistro: true` para el primer ticket del primer batch.
-- `inputs` vacío devuelve `{ results: [], lastHash: startingHash }` sin error.
+### `wrapForSoap(records: string[], cabecera: CabeceraInput): string`
+
+Envuelve 1–1000 registros (`xml` de alta y/o anulación) en el payload `RegFactuSistemaFacturacion`
+conforme a `SuministroLR.xsd`. El envelope `soapenv:Envelope/Body` y la firma siguen siendo del integrador.
+
+```ts
+interface CabeceraInput { obligado: { nombreRazon: string; nif: string } }
+```
+
+### Helpers
+
+```ts
+centsToImporte(cents: number): string  // 1260 → '12.60', -5 → '-0.05'; lanza si no es entero
+// Constantes: SOAP_MAX_RECORDS (1000), SF_NAMESPACE, SFLR_NAMESPACE
+```
 
 ---
 
@@ -123,188 +159,152 @@ interface BatchFiscalResult {
 
 ```
 src/
-  index.ts   — API pública, orquestación, tipos FiscalInput/FiscalData/VerifactuConfig
-  hash.ts    — buildHashInput() + computeHash() (crypto.subtle)
-  xml.ts     — buildTicketXml(), tipos XmlInput/IvaLine
-  qr.ts      — buildQrUrl(), tipo QrInput
+  index.ts   — API pública, orquestación, validaciones de frontera
+  hash.ts    — buildAltaHashInput() / buildAnulacionHashInput() + computeHash()
+  xml.ts     — buildRegistroAltaXml() / buildRegistroAnulacionXml() / wrapForSoap()
+  qr.ts      — buildQrUrl()
 ```
 
-Cada módulo es independiente: `xml.ts` y `qr.ts` son funciones puras síncronas. Solo `hash.ts` es async (por `crypto.subtle`). `index.ts` los compone y expone la API pública.
-
-**La librería no contiene lógica de envío AEAT.** No hay `submit()`, `submitMock()`, ni cliente SOAP. El envío es responsabilidad del sistema integrador.
-
-Los tipos internos (`XmlInput`, `HashInput`, `QrInput`) no se exportan — solo `FiscalInput`, `FiscalData`, `VerifactuConfig`, `IvaLine` y `DestinatarioF1` son parte de la API pública.
+`xml.ts` y `qr.ts` son puros síncronos; solo `hash.ts` es async (`crypto.subtle`). **La librería no
+contiene lógica de envío AEAT** — no hay cliente SOAP ni firma. Tipos internos (`AltaXmlInput`,
+`AltaHashInput`, `QrInput`) no se exportan.
 
 ---
 
 ## 4. Algoritmo de hash
 
-Implementa la concatenación exigida por el RD 1007/2023, Anexo I:
+Implementa el doc oficial AEAT **"Detalle de las especificaciones técnicas para generación de la
+huella o hash de los registros de facturación" v0.1.2** (desarrolla la Orden HAC/1177/2024).
+Copia de los datos clave en `docs/superpowers/specs/2026-07-04-v2-conformidad-aeat.md`.
+
+Registro de **alta** — cadena `campo=valor` unidos por `&`, valores con trim, campo vacío → `Nombre=`:
 
 ```
-IDEmisorFactura={nif}
-NumSerieFactura={numSerie}
-FechaExpedicionFactura={DD-MM-YYYY}
-TipoFactura={tipoFactura}     ← "F1" si hay destinatario, "F2" si no
-CuotaTotalFactura={cuotaTotal}
-ImporteTotal={importeTotal}
-Encadenamiento={previousHash}
+IDEmisorFactura=…&NumSerieFactura=…&FechaExpedicionFactura=DD-MM-YYYY&TipoFactura=…&CuotaTotal=…&ImporteTotal=…&Huella=…&FechaHoraHusoGenRegistro=…
 ```
 
-Sin separadores entre campos. El resultado se hashea con SHA-256 vía `crypto.subtle.digest('SHA-256', ...)` y se codifica como hex lowercase de 64 caracteres.
+Registro de **anulación**:
 
-**Invariante F1/F2:** el `TipoFactura` entra en el hash, por lo que la misma factura produce hashes distintos según lleve o no `destinatario`. Esto es deliberado y exigido por el RD.
+```
+IDEmisorFacturaAnulada=…&NumSerieFacturaAnulada=…&FechaExpedicionFacturaAnulada=…&Huella=…&FechaHoraHusoGenRegistro=…
+```
 
-**Invariante de encadenamiento:** el campo `Encadenamiento` es vacío (`""`) para `esPrimerRegistro: true`, y el hash del registro anterior para el resto. El XML refleja esto con `<PrimerRegistro>S</PrimerRegistro>` o con el bloque `<RegistroAnterior>`.
+UTF-8 → SHA-256 → hex **MAYÚSCULAS**, 64 chars.
+
+**Invariantes:**
+- `FechaHoraHusoGenRegistro` entra en el hash → el mismo input generado en instantes distintos produce
+  huellas distintas. Por eso se acepta como parámetro y se devuelve en `FiscalData` para persistir.
+- `TipoFactura` entra en el hash → F1 y F2 de la misma factura difieren.
+- `Huella=` vacío solo en el primer registro de la cadena (`esPrimerRegistro: true`).
+- Los importes deben ser strings con formato fijo (2 decimales): `'12.6'` y `'12.60'` producen huellas
+  distintas, por eso la validación de frontera exige un único formato.
+
+Tests con los 3 vectores oficiales del doc AEAT §6 (`tests/hash.test.ts`).
 
 ---
 
 ## 5. Formato XML
 
-Genera un `<RegistroFacturacion>` v1.0. El orden de los campos respeta el XSD de la AEAT:
+`buildRegistroAltaXml` genera `<RegistroAlta xmlns="…SuministroInformacion.xsd">` conforme al XSD
+oficial (copia en `tests/schemas/`, validado en CI con xmllint). Secuencia:
 
 ```
-IDVersion → IDFactura → NombreRazonEmisor
-  → [Destinatarios]  ← solo en F1, antes de TipoFactura
-  → TipoFactura → DescripcionOperacion → Desglose
-  → CuotaTotal → ImporteTotal → Encadenamiento
-  → SistemaInformatico → FechaHoraHusoHorarioSistema
-  → NumRegistro → HuellaRegistro
+IDVersion (1.0) → IDFactura{IDEmisorFactura, NumSerieFactura, FechaExpedicionFactura}
+  → NombreRazonEmisor → TipoFactura → DescripcionOperacion
+  → [Destinatarios]                ← solo F1, DESPUÉS de DescripcionOperacion
+  → Desglose{DetalleDesglose{ClaveRegimen, CalificacionOperacion, TipoImpositivo,
+             BaseImponibleOimporteNoSujeto, CuotaRepercutida}}
+  → CuotaTotal → ImporteTotal
+  → Encadenamiento{PrimerRegistro=S | RegistroAnterior{IDEmisorFactura, NumSerieFactura,
+                   FechaExpedicionFactura, Huella}}   ← CHOICE: uno u otro, nunca ambos.
+                   Los datos son de la factura ANTERIOR.
+  → SistemaInformatico → FechaHoraHusoGenRegistro → TipoHuella (01) → Huella
 ```
 
-Campos fijos:
-- `<TipoFactura>F1</TipoFactura>` o `<TipoFactura>F2</TipoFactura>` — derivado de la presencia de `destinatario`
-- `<DescripcionOperacion>Venda de productes</DescripcionOperacion>` — descripción fija
-- `<TipoUsoPosibleSoloVerifactu>S</TipoUsoPosibleSoloVerifactu>` — solo Verifactú (no BATUZ/TICKETBAI)
-- `<NumeroInstalacion>1</NumeroInstalacion>` — instalación única
+`buildRegistroAnulacionXml`: `IDVersion → IDFactura{IDEmisorFacturaAnulada, NumSerieFacturaAnulada,
+FechaExpedicionFacturaAnulada} → Encadenamiento → SistemaInformatico → FechaHoraHusoGenRegistro →
+TipoHuella → Huella`.
 
-Bloque F1 (`<Destinatarios>`):
-```xml
-<Destinatarios>
-  <IDDestinatario>
-    <NombreRazon>{destinatario.nombre escapeado}</NombreRazon>
-    <NIF>{destinatario.nif escapeado}</NIF>
-  </IDDestinatario>
-</Destinatarios>
-```
-
-El XML se genera como string (sin DOM ni parser), lo que garantiza compatibilidad total en Node y browser sin dependencias. Los caracteres especiales (`&`, `<`, `>`, `"`, `'`) se escapean en todos los campos de texto.
+El XML se genera como string (sin DOM). Caracteres especiales escapados en todos los campos de texto.
 
 ---
 
 ## 6. Build y distribución
 
-### Dual build con tsup
+```bash
+npm run build   # tsup → dist/index.js (ESM) + dist/index.cjs (CJS) + types
+```
+
+`dist/` se commitea en git para que `npm install github:…#tag` funcione sin build en el consumidor.
+`package.json` declara `files: ["dist"]` y `engines: { node: ">=20" }`.
+
+### Instalación en consumidores
 
 ```bash
-npm run build   # genera dist/index.js (ESM) + dist/index.cjs (CJS) + types
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v2.0.0
 ```
 
-`tsup.config.ts`:
-```ts
-export default defineConfig({
-  entry: ['src/index.ts'],
-  format: ['esm', 'cjs'],
-  dts: true,
-  clean: true,
-  sourcemap: true,
-})
-```
-
-El `dist/` se compromete en git (no está en `.gitignore`) para que la instalación vía `github:` funcione sin paso de build en el consumidor.
-
-### Exports en package.json
-
-```json
-"exports": {
-  ".": {
-    "import":  { "types": "./dist/index.d.ts",  "default": "./dist/index.js"  },
-    "require": { "types": "./dist/index.d.cts", "default": "./dist/index.cjs" }
-  }
-}
-```
-
-### Instalación en proyectos consumidores
-
-```bash
-npm install github:alfonso-matos-financefox-ch/verifactu-js#v1.1.0
-```
+**Regla:** un único mecanismo de distribución — tag git explícito. No vendorizar tarballs (causó el
+drift de EasyFichi, que quedó en v1.1.0 sin F1 creyendo estar en v1.3.1). **Nunca `#main`.**
 
 ---
 
 ## 7. Tests
 
-Tests en `tests/`, agrupados por módulo:
-
 | Fichero | Cobertura |
 |---------|-----------|
-| `hash.test.ts` | Concatenación correcta de campos, hash SHA-256 determinista y único, F1 y F2 producen hashes distintos |
-| `xml.test.ts` | XML F2 (sin `<Destinatarios>`), XML F1 con bloque `<Destinatarios>` completo y en posición correcta (antes de `<TipoFactura>`), desglose IVA, campos del sistema, escape de caracteres especiales en emisor y destinatario |
-| `qr.test.ts` | URL QR con parámetros correctos en modo prod y test (`prewww2.aeat.es`) |
-| `batch.test.ts` | Encadenamiento de registros, `lastHash` correcto, `esPrimerRegistro` con `startingHash: ""`, batch vacío |
-| `chain.test.ts` | Validación de invariantes de cadena: combinaciones inválidas de `esPrimerRegistro`/`previousHash` lanzan error; campo `serie` no afecta a hash/xml/qrUrl |
-| `golden.test.ts` | Golden master F2 y F1: input fijo → hash, qrUrl y estructura XML exactos. Cualquier cambio que rompa estos tests es un cambio fiscal. |
-
-```bash
-npm run test
-```
-
-No se usa `@testing-library` ni jsdom. Assertions nativas de Vitest. Entorno `node`.
+| `hash.test.ts` | **Vectores oficiales AEAT** (alta primer registro, alta encadenada, anulación), trim, campo vacío, salida uppercase |
+| `xml.test.ts` | Secuencia de elementos según XSD, DetalleDesglose con defaults 01/S1, Encadenamiento choice, RegistroAnterior con datos de la factura anterior, anulación, wrapForSoap, escape |
+| `xsd.test.ts` | **Validación real contra los XSD oficiales** (alta F1/F2, anulación, envelope SOAP) con xmllint; se omite si xmllint no está |
+| `qr.test.ts` | TIKE-CONT prod/pruebas, orden de parámetros, URL-encoding |
+| `chain.test.ts` | Invariantes de encadenamiento, validación de importes/tipoImpositivo/softwareId/fechaHora, coherencia tipoFactura↔destinatario, centsToImporte |
+| `batch.test.ts` | Encadenado de refs, continuación de cadena, equivalencia batch↔individual, batch vacío |
+| `golden.test.ts` | Golden master F2/F1/anulación/QR con `fechaHoraGenRegistro` fija. Si falla, hay cambio fiscal → major bump |
 
 ---
 
 ## 8. Proceso de actualización
 
-Cuando se modifique la librería:
-
 ```bash
-# 1. Hacer cambios en src/
-# 2. Actualizar tests
 npm run test       # todos deben pasar — prestar atención a golden.test.ts
-
-# 3. Rebuild
 npm run build      # regenera dist/
-
-# 4. Commit incluyendo dist/
-git add src/ tests/ dist/ package.json
+git add src/ tests/ dist/ package.json CHANGELOG.md
 git commit -m "feat/fix: descripción"
-
-# 5. Nuevo tag semántico
-git tag v1.4.x
-git push origin main && git push origin v1.4.x
-
-# 6. Actualizar el tag en los proyectos consumidores
-# En pallaresa-tpv/package.json o functions/package.json:
-# "verifactu-js": "github:alfonso-matos-financefox-ch/verifactu-js#v1.4.x"
-# npm install
+git tag vX.Y.Z && git push origin main && git push origin vX.Y.Z
+# Actualizar CHANGELOG.md y el tag en los consumidores (pallaresa-tpv, fichaje_app)
 ```
 
-**Nunca apuntar a `#main`** — las actualizaciones de una librería fiscal deben ser explícitas e intencionales.
+Cambio que altere hash/XML/QR generados = **breaking fiscal** → major bump + coordinación con todos
+los consumidores (las cadenas existentes quedan invalidadas).
 
 ---
 
 ## 9. Decisiones de diseño
 
 ### Importes como strings, no numbers
-Los importes (`cuotaTotal`, `importeTotal`, `baseImponible`, etc.) son strings para evitar que la aritmética flotante de JavaScript altere los valores fiscales. El sistema integrador formatea los numbers con 2 decimales antes de llamar a la librería. El XML y el hash reflejan exactamente los strings recibidos, sin transformación.
+Evita que la aritmética flotante altere valores fiscales. v2 **valida en frontera** el formato
+(punto + 2 decimales exactos) porque `'12.6'` y `'12.60'` producen huellas distintas. Para clientes
+en centavos existe `centsToImporte()`.
 
 ### Sin dependencias runtime
-`crypto.subtle` es una Web API estándar disponible en Node 18+ y todos los browsers modernos. No se necesita ningún paquete npm para el hash. Esto elimina el riesgo de supply chain en una librería de compliance fiscal.
+`crypto.subtle` es Web API estándar (Node ≥20, browsers en contexto seguro). Cero supply chain.
 
 ### XML como string (sin DOM)
-Usar template literals para generar el XML evita dependencias en `xmlbuilder2`, `fast-xml-parser` u otros. El formato XML de VeriFACTU es estático y bien definido; no hay ventaja en usar un parser/builder para un schema que no cambia.
+El esquema es estático; template literals + validación XSD en CI dan la misma garantía sin dependencias.
 
-### `esPrimerRegistro` explícito
-En lugar de inferir si es el primer registro comprobando `previousHash === ""`, se exige el flag explícito. Esto previene que un hash vacío por error (bug en el integrador) sea tratado silenciosamente como primer registro de la cadena.
+### `esPrimerRegistro` explícito + `registroAnterior` estructurado
+El flag explícito previene que un hash vacío por bug se trate como inicio de cadena. `registroAnterior`
+es un objeto (no solo el hash) porque el XSD exige numSerie/fecha del registro anterior en el XML.
 
-`buildTicketFiscalData` valida la combinación al inicio: `esPrimerRegistro=true` con `previousHash` no vacío lanza error; `esPrimerRegistro=false` con `previousHash` vacío también. `previousHash` no vacío que no sea hex de 64 caracteres también lanza error.
+### `fechaHoraGenRegistro` como parámetro
+Entra en el hash, así que no puede ser un `new Date()` oculto: el cliente puede fijarla (reproducibilidad,
+tests) y SIEMPRE recibe de vuelta el valor usado para persistirlo. Default: ahora.
 
-### Campo `serie` — metadata del caller
-`FiscalInput.serie: string` está presente como metadata del caller pero **no afecta a hash, XML ni qrUrl**. El identificador fiscal real es `numSerie`. La librería lo recibe para que el caller pueda pasarlo sin transformar su propio modelo de datos, pero no lo usa internamente. No se incluirá en operaciones fiscales. Candidato a eliminar en v2.
+### Sin envío SOAP ni firma
+Frontera deliberada (se añadió y retiró `submit()` en v1.2). `wrapForSoap` genera el payload, pero
+el transporte, mTLS/certificados y la firma son del integrador (Cloud Function).
 
 ### Timezone del runtime
-`buildTicketFiscalData` recibe `fecha: Date` y formatea internamente la fecha fiscal (`DD-MM-YYYY`) y la marca temporal (`ISO con offset`) usando las funciones locales del runtime (`getDate()`, `getTimezoneOffset()`).
-
-**Política:** la fecha fiscal se calcula en la timezone del runtime. En Cloud Functions configurar `TZ=Europe/Madrid` para garantizar que la fecha local española es correcta. Si el `Date` llega construido desde una string ISO con offset explícito (ej. `new Date('2026-01-01T10:00:00+01:00')`), la fecha fiscal será siempre correcta independientemente del TZ del runtime.
-
-Los tests golden usan `new Date(2026, 0, 1, 12, 0, 0)` (mediodía en hora local) para evitar desfases por el límite de medianoche. `FechaHoraHusoHorarioSistema` en el XML sí depende del timezone del runtime — no es parte de los asserts exactos de golden.test.ts.
+`fecha: Date` se formatea con funciones locales del runtime. En Cloud Functions configurar
+`TZ=Europe/Madrid`. Para `fechaHoraGenRegistro` los integradores server-side deberían pasar string
+ISO con offset explícito y persistirlo.

@@ -1,82 +1,68 @@
 import { describe, it, expect } from 'vitest'
-import { buildBatchFiscalData } from '../src/index'
-import type { BatchFiscalInput, VerifactuConfig } from '../src/index'
+import { buildBatchInvoiceRecords, buildInvoiceRecord } from '../src/index.js'
+import type { BatchInvoiceInput, VerifactuConfig } from '../src/index.js'
 
 const config: VerifactuConfig = {
-  nif: 'B12345678',
-  nombreRazon: 'Test Restauració S.L.',
-  softwareNif: '00000000T',
-  softwareNombre: 'test-sw',
-  softwareVersion: '1.0',
-  softwareId: 'TEST-001',
+  nif: 'B62215389',
+  nombreRazon: 'La Pallaresa',
+  softwareNif: 'B00000000',
+  softwareNombre: 'pallaresa-tpv',
+  softwareVersion: '2.0.0',
+  softwareId: 'PT',
+  testMode: true,
 }
 
-const ticket1: BatchFiscalInput = {
-  config,
-  numSerie: 'A-2026-000001',
-  serie: 'A',
-  fecha: new Date('2026-01-01T10:00:00'),
-  numRegistro: 1,
-  desgloseIva: [{ tipoImpositivo: '10', baseImponible: '11.45', cuotaRepercutida: '1.15' }],
-  cuotaTotal: '1.15',
-  importeTotal: '12.60',
+function ticket(n: number): BatchInvoiceInput {
+  return {
+    config,
+    numSerie: `A-2026-00000${n}`,
+    fecha: new Date(2026, 5, 15),
+    fechaHoraGenRegistro: `2026-06-15T12:00:0${n}+02:00`,
+    descripcion: 'Venda de productes',
+    desgloseIva: [{ tipoImpositivo: '10', baseImponible: '11.45', cuotaRepercutida: '1.15' }],
+    cuotaTotal: '1.15',
+    importeTotal: '12.60',
+  }
 }
 
-const ticket2: BatchFiscalInput = {
-  config,
-  numSerie: 'A-2026-000002',
-  serie: 'A',
-  fecha: new Date('2026-01-01T11:00:00'),
-  numRegistro: 2,
-  desgloseIva: [{ tipoImpositivo: '10', baseImponible: '7.64', cuotaRepercutida: '0.76' }],
-  cuotaTotal: '0.76',
-  importeTotal: '8.40',
-}
-
-const ticket3: BatchFiscalInput = {
-  config,
-  numSerie: 'A-2026-000003',
-  serie: 'A',
-  fecha: new Date('2026-01-01T12:00:00'),
-  numRegistro: 3,
-  desgloseIva: [{ tipoImpositivo: '10', baseImponible: '20.09', cuotaRepercutida: '2.01' }],
-  cuotaTotal: '2.01',
-  importeTotal: '22.10',
-}
-
-describe('buildBatchFiscalData', () => {
-  it('returns empty results with unchanged lastHash when inputs is empty', async () => {
-    const result = await buildBatchFiscalData([], 'a'.repeat(64))
-    expect(result.results).toHaveLength(0)
-    expect(result.lastHash).toBe('a'.repeat(64))
+describe('buildBatchInvoiceRecords', () => {
+  it('encadena N registros desde el inicio de cadena (startingRef null)', async () => {
+    const { results, lastRef } = await buildBatchInvoiceRecords([ticket(1), ticket(2), ticket(3)], null)
+    expect(results).toHaveLength(3)
+    expect(results[0]!.xml).toContain('<PrimerRegistro>S</PrimerRegistro>')
+    expect(results[1]!.xml).toContain(`<Huella>${results[0]!.hash}</Huella></RegistroAnterior>`)
+    expect(results[1]!.xml).toContain(
+      '<RegistroAnterior><IDEmisorFactura>B62215389</IDEmisorFactura><NumSerieFactura>A-2026-000001</NumSerieFactura>',
+    )
+    expect(results[2]!.xml).toContain(`<Huella>${results[1]!.hash}</Huella></RegistroAnterior>`)
+    expect(lastRef).not.toBeNull()
+    expect(lastRef!.huella).toBe(results[2]!.hash)
+    expect(lastRef!.numSerie).toBe('A-2026-000003')
   })
 
-  it('returns empty results with unchanged empty startingHash when inputs is empty', async () => {
-    const result = await buildBatchFiscalData([], '')
-    expect(result.results).toHaveLength(0)
-    expect(result.lastHash).toBe('')
+  it('continúa una cadena existente (startingRef con huella previa)', async () => {
+    const first = await buildBatchInvoiceRecords([ticket(1)], null)
+    const { results } = await buildBatchInvoiceRecords([ticket(2)], first.lastRef)
+    expect(results[0]!.xml).not.toContain('<PrimerRegistro>')
+    expect(results[0]!.xml).toContain(`<Huella>${first.results[0]!.hash}</Huella>`)
   })
 
-  it('marks first ticket as primer registro when startingHash is empty string', async () => {
-    const result = await buildBatchFiscalData([ticket1], '')
-    expect(result.results[0]!.xml).toContain('<PrimerRegistro>S</PrimerRegistro>')
+  it('batch equivale a llamadas individuales encadenadas', async () => {
+    const batch = await buildBatchInvoiceRecords([ticket(1), ticket(2)], null)
+    const solo1 = await buildInvoiceRecord({ ...ticket(1), esPrimerRegistro: true })
+    const solo2 = await buildInvoiceRecord({
+      ...ticket(2),
+      esPrimerRegistro: false,
+      registroAnterior: { numSerie: ticket(1).numSerie, fecha: ticket(1).fecha, huella: solo1.hash },
+    })
+    expect(batch.results[0]!.hash).toBe(solo1.hash)
+    expect(batch.results[1]!.hash).toBe(solo2.hash)
+    expect(batch.results[1]!.xml).toBe(solo2.xml)
   })
 
-  it('does not mark first ticket as primer registro when startingHash is non-empty', async () => {
-    const prevHash = 'b'.repeat(64)
-    const result = await buildBatchFiscalData([ticket1], prevHash)
-    expect(result.results[0]!.xml).toContain('<PrimerRegistro>N</PrimerRegistro>')
-    expect(result.results[0]!.xml).toContain(`<Huella>${prevHash}</Huella>`)
-  })
-
-  it('chains hashes correctly across 3 tickets and sets lastHash to last result hash', async () => {
-    const result = await buildBatchFiscalData([ticket1, ticket2, ticket3], '')
-
-    expect(result.results).toHaveLength(3)
-    expect(result.lastHash).toBe(result.results[2]!.hash)
-    // ticket 2 references ticket 1's hash
-    expect(result.results[1]!.xml).toContain(`<Huella>${result.results[0]!.hash}</Huella>`)
-    // ticket 3 references ticket 2's hash
-    expect(result.results[2]!.xml).toContain(`<Huella>${result.results[1]!.hash}</Huella>`)
+  it('batch vacío → sin resultados, lastRef = startingRef', async () => {
+    const { results, lastRef } = await buildBatchInvoiceRecords([], null)
+    expect(results).toHaveLength(0)
+    expect(lastRef).toBeNull()
   })
 })
