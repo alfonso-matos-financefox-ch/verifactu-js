@@ -3,6 +3,25 @@
 Todos los cambios notables de esta librería. Formato basado en [Keep a Changelog](https://keepachangelog.com/es/).
 **Regla fiscal:** cualquier cambio que altere hash, XML o QR generados es BREAKING → major bump y coordinación con todos los consumidores.
 
+## [2.1.0] — 2026-08-22
+
+- `VerifactuConfig.softwareNombreRazon` (opcional): nombre o razón social de la persona o entidad
+  **productora** del software, que es lo que va en `SistemaInformatico/NombreRazon`.
+
+  Hasta la 2.0.1 ese campo se rellenaba con `softwareNombre` (el nombre comercial), de modo que el
+  par `NombreRazon` + `NIF` del bloque no identificaba a nadie coherente: el nombre era del producto
+  y el NIF de la entidad. La AEAT define ese bloque como «el código de identificación del sistema
+  informático utilizado, junto con los datos identificativos del **productor** del citado sistema
+  informático» (contenido del registro de facturación de alta, punto 16). El nombre comercial va en
+  `NombreSistemaInformatico`, que ya se rellenaba bien.
+
+  Con software autodesarrollado el productor es el propio obligado, así que el valor coincide con
+  `config.nombreRazon`.
+
+  **No es breaking**: omitir el campo reproduce el comportamiento de <= 2.0.1. Pero el XML resultante
+  es el incorrecto, así que los consumidores deben pasarlo. Cambia la huella de los registros
+  nuevos; no afecta a los ya encadenados, que siguen siendo válidos.
+
 ## [2.0.1] — 2026-07-04
 
 - `fecha` (y `fechaAnulada`, `registroAnterior.fecha`) acepta también string `'YYYY-MM-DD'` usada

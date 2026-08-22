@@ -202,7 +202,9 @@ function resolveRegistroAnterior(config, ref) {
 }
 function sistemaFromConfig(config) {
   return {
-    nombreRazon: config.softwareNombre,
+    // Productor del software. El fallback a softwareNombre reproduce el
+    // comportamiento (erroneo) de <= 2.0.1 para no romper a quien no lo pase.
+    nombreRazon: config.softwareNombreRazon ?? config.softwareNombre,
     nif: config.softwareNif,
     nombreSistema: config.softwareNombre,
     id: config.softwareId,

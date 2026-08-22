@@ -22,6 +22,22 @@ export interface VerifactuConfig {
   nombreRazon: string
   softwareNif: string
   softwareNombre: string
+  /**
+   * NombreRazon del bloque SistemaInformatico: nombre o razon social de la
+   * persona o entidad PRODUCTORA del software, no el nombre del software.
+   * El nombre comercial va en softwareNombre (NombreSistemaInformatico).
+   *
+   * Fuente: AEAT, contenido del registro de facturacion de alta, punto 16 —
+   * «el codigo de identificacion del sistema informatico utilizado, junto con
+   * los datos identificativos del PRODUCTOR del citado sistema informatico».
+   *
+   * Con software autodesarrollado el productor es el propio obligado, asi que
+   * el valor coincide con `nombreRazon`.
+   *
+   * Opcional por compatibilidad: si se omite se usa softwareNombre, que es lo
+   * que hacian las versiones <= 2.0.1 (y es incorrecto). Ponlo siempre.
+   */
+  softwareNombreRazon?: string
   softwareVersion: string
   softwareId: string // IdSistemaInformatico — máx. 2 caracteres (XSD TextMax2Type)
   numeroInstalacion?: string // default '1'
@@ -183,7 +199,9 @@ function resolveRegistroAnterior(
 
 function sistemaFromConfig(config: VerifactuConfig): SistemaInformaticoInput {
   return {
-    nombreRazon: config.softwareNombre,
+    // Productor del software. El fallback a softwareNombre reproduce el
+    // comportamiento (erroneo) de <= 2.0.1 para no romper a quien no lo pase.
+    nombreRazon: config.softwareNombreRazon ?? config.softwareNombre,
     nif: config.softwareNif,
     nombreSistema: config.softwareNombre,
     id: config.softwareId,

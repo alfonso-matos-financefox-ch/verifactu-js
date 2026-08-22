@@ -161,3 +161,57 @@ describe('wrapForSoap', () => {
     expect(() => wrapForSoap(Array(1001).fill('<x/>'), cab)).toThrow(/max 1000/)
   })
 })
+
+// El bloque SistemaInformatico identifica al PRODUCTOR del software, no al
+// software: AEAT, contenido del registro de alta, punto 16 — «los datos
+// identificativos del productor del citado sistema informático».
+// Hasta la 2.0.1 se rellenaba NombreRazon con el nombre comercial.
+describe('SistemaInformatico — productor del software', () => {
+  it('softwareNombreRazon va a NombreRazon y softwareNombre a NombreSistemaInformatico', async () => {
+    const { buildInvoiceRecord } = await import('../src/index.js')
+    const { xml } = await buildInvoiceRecord({
+      config: {
+        nif: 'B62215389',
+        nombreRazon: 'GRANJA I XOCOLATERIA LA PALLARESA, S.L.',
+        softwareNif: 'B62215389',
+        softwareNombre: 'EasyFichi',
+        softwareNombreRazon: 'GRANJA I XOCOLATERIA LA PALLARESA, S.L.',
+        softwareVersion: '1.0',
+        softwareId: 'EF',
+      },
+      numSerie: 'F-2027-0001',
+      fecha: '2027-03-15',
+      descripcion: 'Prestación de servicios',
+      desgloseIva: [{ tipoImpositivo: '21', baseImponible: '100.00', cuotaRepercutida: '21.00' }],
+      cuotaTotal: '21.00',
+      importeTotal: '121.00',
+      esPrimerRegistro: true,
+    })
+    const bloque = xml.match(/<SistemaInformatico>[\s\S]*?<\/SistemaInformatico>/)![0]
+    expect(bloque).toContain('<NombreRazon>GRANJA I XOCOLATERIA LA PALLARESA, S.L.</NombreRazon>')
+    expect(bloque).toContain('<NombreSistemaInformatico>EasyFichi</NombreSistemaInformatico>')
+  })
+
+  it('sin softwareNombreRazon conserva el comportamiento de <= 2.0.1', async () => {
+    const { buildInvoiceRecord } = await import('../src/index.js')
+    const { xml } = await buildInvoiceRecord({
+      config: {
+        nif: 'B62215389',
+        nombreRazon: 'GRANJA I XOCOLATERIA LA PALLARESA, S.L.',
+        softwareNif: 'B62215389',
+        softwareNombre: 'EasyFichi',
+        softwareVersion: '1.0',
+        softwareId: 'EF',
+      },
+      numSerie: 'F-2027-0001',
+      fecha: '2027-03-15',
+      descripcion: 'Prestación de servicios',
+      desgloseIva: [{ tipoImpositivo: '21', baseImponible: '100.00', cuotaRepercutida: '21.00' }],
+      cuotaTotal: '21.00',
+      importeTotal: '121.00',
+      esPrimerRegistro: true,
+    })
+    const bloque = xml.match(/<SistemaInformatico>[\s\S]*?<\/SistemaInformatico>/)![0]
+    expect(bloque).toContain('<NombreRazon>EasyFichi</NombreRazon>')
+  })
+})

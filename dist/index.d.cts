@@ -25,6 +25,22 @@ interface VerifactuConfig {
     nombreRazon: string;
     softwareNif: string;
     softwareNombre: string;
+    /**
+     * NombreRazon del bloque SistemaInformatico: nombre o razon social de la
+     * persona o entidad PRODUCTORA del software, no el nombre del software.
+     * El nombre comercial va en softwareNombre (NombreSistemaInformatico).
+     *
+     * Fuente: AEAT, contenido del registro de facturacion de alta, punto 16 —
+     * «el codigo de identificacion del sistema informatico utilizado, junto con
+     * los datos identificativos del PRODUCTOR del citado sistema informatico».
+     *
+     * Con software autodesarrollado el productor es el propio obligado, asi que
+     * el valor coincide con `nombreRazon`.
+     *
+     * Opcional por compatibilidad: si se omite se usa softwareNombre, que es lo
+     * que hacian las versiones <= 2.0.1 (y es incorrecto). Ponlo siempre.
+     */
+    softwareNombreRazon?: string;
     softwareVersion: string;
     softwareId: string;
     numeroInstalacion?: string;
