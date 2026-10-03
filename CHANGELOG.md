@@ -3,6 +3,17 @@
 Todos los cambios notables de esta librería. Formato basado en [Keep a Changelog](https://keepachangelog.com/es/).
 **Regla fiscal:** cualquier cambio que altere hash, XML o QR generados es BREAKING → major bump y coordinación con todos los consumidores.
 
+## [2.2.0] — 2026-10-03
+
+- `tipoFactura: 'F3'` — «factura emitida en sustitución de facturas simplificadas facturadas y
+  declaradas» (canje de tickets por factura completa). Nuevo campo `facturasSustituidas`
+  (`{ numSerie, fecha, idEmisor? }[]`, `idEmisor` default `config.nif`) que genera el bloque XSD
+  `FacturasSustituidas/IDFacturaSustituida` entre `TipoFactura` y `DescripcionOperacion`.
+- Validación: F3 exige `destinatario` y >=1 sustituida (máx. 1000); `facturasSustituidas` con F1/F2 lanza.
+- **No es breaking**: F1/F2 generan exactamente lo mismo (golden intacto). La lista de sustituidas
+  no entra en la huella (el algoritmo de huella de alta solo usa `TipoFactura`).
+- Test XSD real del registro F3 con xmllint.
+
 ## [2.1.0] — 2026-08-22
 
 - `VerifactuConfig.softwareNombreRazon` (opcional): nombre o razón social de la persona o entidad

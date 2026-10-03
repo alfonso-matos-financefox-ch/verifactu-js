@@ -65,6 +65,9 @@ el `lastRef` persistido, y `wrapForSoap()` para construir el payload del envío.
 - **F2** (consumidor final): sin `destinatario`.
 - **F1** (B2B): pasar `destinatario: { nif, nombre }`; la librería incluye `<Destinatarios>` y usa
   `TipoFactura=F1` en el hash. `descripcion` es obligatoria (cada cliente pasa la suya).
+- **F3** (v2.2.0, factura que sustituye tickets ya declarados — canje de simplificadas): `tipoFactura: 'F3'`
+  + `destinatario` + `facturasSustituidas: [{ numSerie, fecha }]` (los tickets). Declararla como F1
+  contaría el ingreso dos veces.
 - **Anulaciones**: `buildAnulacionRecord()` consume un eslabón de la misma cadena.
 
 La cadena de hashes de EasyFichi es **independiente por empresa** y de la cadena del TPV — cada
@@ -77,7 +80,7 @@ bifurcar la cadena con emisiones concurrentes.
 ## 4. Alcance y limitaciones
 
 ### Lo que cubre
-- Facturas **F2** (simplificadas) y **F1** (B2B con destinatario NIF español).
+- Facturas **F2** (simplificadas), **F1** (B2B con destinatario NIF español) y **F3** (sustitución de simplificadas, v2.2.0).
 - Registros de **anulación** con su fórmula de huella oficial.
 - Cadena de huellas conforme al doc oficial AEAT (vectores oficiales en tests).
 - XML conforme al XSD oficial (validación xmllint en CI) + payload `RegFactuSistemaFacturacion`.

@@ -73,8 +73,10 @@ interface FiscalInput {
   fechaHoraGenRegistro?: Date | string   // instante de generación del registro — ENTRA EN EL HASH.
                                          // Date → formateo con huso del runtime; string → verbatim
                                          // (ISO 8601 con offset, se valida). Default: ahora.
-  tipoFactura?: 'F1' | 'F2'              // default: 'F1' si hay destinatario, 'F2' si no.
+  tipoFactura?: 'F1' | 'F2' | 'F3'       // default: 'F1' si hay destinatario, 'F2' si no.
                                          // Incoherencias (F1 sin destinatario, F2 con) lanzan.
+                                         // F3 (v2.2.0) = sustitución de simplificadas: exige
+                                         // destinatario + facturasSustituidas (>=1, <=1000).
   descripcion: string                    // DescripcionOperacion — obligatorio (v1 lo hardcodeaba)
   desgloseIva: IvaLine[]
   cuotaTotal: string                     // "1.05" — punto y 2 decimales exactos, se valida
@@ -82,6 +84,8 @@ interface FiscalInput {
   esPrimerRegistro: boolean
   registroAnterior?: RegistroAnteriorRef // obligatorio si esPrimerRegistro === false
   destinatario?: DestinatarioF1
+  facturasSustituidas?: FacturaSustituidaRef[] // solo F3: { numSerie, fecha, idEmisor? = config.nif }
+                                               // NO entra en la huella. Con F1/F2 lanza.
 }
 
 interface IvaLine {
@@ -210,8 +214,11 @@ oficial (copia en `tests/schemas/`, validado en CI con xmllint). Secuencia:
 
 ```
 IDVersion (1.0) → IDFactura{IDEmisorFactura, NumSerieFactura, FechaExpedicionFactura}
-  → NombreRazonEmisor → TipoFactura → DescripcionOperacion
-  → [Destinatarios]                ← solo F1, DESPUÉS de DescripcionOperacion
+  → NombreRazonEmisor → TipoFactura
+  → [FacturasSustituidas{IDFacturaSustituida{IDEmisorFactura, NumSerieFactura,
+                         FechaExpedicionFactura}×N}]   ← solo F3 (v2.2.0)
+  → DescripcionOperacion
+  → [Destinatarios]                ← F1 y F3, DESPUÉS de DescripcionOperacion
   → Desglose{DetalleDesglose{ClaveRegimen, CalificacionOperacion, TipoImpositivo,
              BaseImponibleOimporteNoSujeto, CuotaRepercutida}}
   → CuotaTotal → ImporteTotal

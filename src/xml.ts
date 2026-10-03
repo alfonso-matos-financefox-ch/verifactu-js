@@ -16,6 +16,13 @@ export interface DestinatarioF1 {
   nombre: string
 }
 
+// IDFacturaARType del XSD: identifica una factura sustituida (F3) por el emisor, n.º y fecha
+export interface FacturaSustituidaXml {
+  idEmisor: string
+  numSerie: string
+  fecha: string // DD-MM-YYYY
+}
+
 export interface SistemaInformaticoInput {
   nombreRazon: string
   nif: string
@@ -47,6 +54,7 @@ export interface AltaXmlInput {
   registroAnterior: RegistroAnteriorXml | null // null = primer registro de la cadena
   hash: string
   destinatario?: DestinatarioF1
+  facturasSustituidas?: FacturaSustituidaXml[] // solo F3
 }
 
 export interface AnulacionXmlInput {
@@ -70,6 +78,21 @@ function escapeXml(s: string): string {
 
 function destinatariosXml(d: DestinatarioF1): string {
   return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon><NIF>${escapeXml(d.nif)}</NIF></IDDestinatario></Destinatarios>`
+}
+
+// XSD: FacturasSustituidas va entre TipoFactura y DescripcionOperacion (tras FacturasRectificadas)
+function facturasSustituidasXml(list: FacturaSustituidaXml[]): string {
+  const ids = list
+    .map(
+      f =>
+        `<IDFacturaSustituida>` +
+        `<IDEmisorFactura>${escapeXml(f.idEmisor)}</IDEmisorFactura>` +
+        `<NumSerieFactura>${escapeXml(f.numSerie)}</NumSerieFactura>` +
+        `<FechaExpedicionFactura>${escapeXml(f.fecha)}</FechaExpedicionFactura>` +
+        `</IDFacturaSustituida>`,
+    )
+    .join('')
+  return `<FacturasSustituidas>${ids}</FacturasSustituidas>`
 }
 
 // XSD: Encadenamiento es un choice — PrimerRegistro O RegistroAnterior, nunca ambos
@@ -121,6 +144,7 @@ function sistemaInformaticoXml(s: SistemaInformaticoInput): string {
 
 export function buildRegistroAltaXml(i: AltaXmlInput): string {
   const destinatarios = i.destinatario ? destinatariosXml(i.destinatario) : ''
+  const sustituidas = i.facturasSustituidas?.length ? facturasSustituidasXml(i.facturasSustituidas) : ''
   return (
     `<RegistroAlta xmlns="${SF_NAMESPACE}">` +
     `<IDVersion>1.0</IDVersion>` +
@@ -131,6 +155,7 @@ export function buildRegistroAltaXml(i: AltaXmlInput): string {
     `</IDFactura>` +
     `<NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor>` +
     `<TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura>` +
+    sustituidas +
     `<DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion>` +
     destinatarios +
     desgloseXml(i.desgloseIva) +

@@ -44,7 +44,16 @@ export interface VerifactuConfig {
   testMode?: boolean // default false — true apunta el QR a prewww2.aeat.es
 }
 
-export type TipoFacturaAlta = 'F1' | 'F2'
+// F3 = factura emitida en sustitución de facturas simplificadas facturadas y declaradas
+// (canje de tickets). Lleva destinatario y la lista de tickets sustituidos.
+export type TipoFacturaAlta = 'F1' | 'F2' | 'F3'
+
+// Factura simplificada que la F3 sustituye. idEmisor default: config.nif (mismo obligado).
+export interface FacturaSustituidaRef {
+  numSerie: string
+  fecha: FechaInput
+  idEmisor?: string
+}
 
 // Referencia al último registro emitido — los clientes deben persistirla junto al hash:
 // el bloque XML Encadenamiento/RegistroAnterior exige numSerie y fecha de la factura anterior.
@@ -70,6 +79,7 @@ export interface FiscalInput {
   esPrimerRegistro: boolean
   registroAnterior?: RegistroAnteriorRef // obligatorio si esPrimerRegistro === false
   destinatario?: DestinatarioF1
+  facturasSustituidas?: FacturaSustituidaRef[] // obligatorio (>=1) si tipoFactura === 'F3'; prohibido en otro caso
 }
 
 export interface FiscalData {
@@ -233,6 +243,25 @@ export async function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData
   if (tipoFactura === 'F2' && input.destinatario !== undefined) {
     throw new Error('Invalid input: tipoFactura F2 must not have destinatario')
   }
+  if (tipoFactura === 'F3') {
+    if (input.destinatario === undefined) {
+      throw new Error('Invalid input: tipoFactura F3 requires destinatario')
+    }
+    if (!input.facturasSustituidas || input.facturasSustituidas.length === 0) {
+      throw new Error('Invalid input: tipoFactura F3 requires facturasSustituidas (>=1)')
+    }
+    if (input.facturasSustituidas.length > 1000) {
+      throw new Error('Invalid input: facturasSustituidas max 1000 (XSD maxOccurs)')
+    }
+  } else if (input.facturasSustituidas !== undefined && input.facturasSustituidas.length > 0) {
+    throw new Error(`Invalid input: facturasSustituidas only allowed with tipoFactura F3 (got ${tipoFactura})`)
+  }
+  const facturasSustituidas = (input.facturasSustituidas ?? []).map(f => {
+    if (!f.numSerie || f.numSerie.length > 60) {
+      throw new Error(`Invalid facturasSustituidas.numSerie: got '${f.numSerie}' (1-60 chars)`)
+    }
+    return { idEmisor: f.idEmisor ?? input.config.nif, numSerie: f.numSerie, fecha: formatFecha(f.fecha) }
+  })
 
   const fecha = formatFecha(input.fecha)
   const fechaHoraGenRegistro = resolveFechaHora(input.fechaHoraGenRegistro)
@@ -265,6 +294,7 @@ export async function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData
     registroAnterior: resolveRegistroAnterior(input.config, input.registroAnterior),
     hash,
     ...(input.destinatario !== undefined ? { destinatario: input.destinatario } : {}),
+    ...(facturasSustituidas.length > 0 ? { facturasSustituidas } : {}),
   }
 
   const qrUrl = buildQrUrl({

@@ -46,7 +46,12 @@ interface VerifactuConfig {
     numeroInstalacion?: string;
     testMode?: boolean;
 }
-type TipoFacturaAlta = 'F1' | 'F2';
+type TipoFacturaAlta = 'F1' | 'F2' | 'F3';
+interface FacturaSustituidaRef {
+    numSerie: string;
+    fecha: FechaInput;
+    idEmisor?: string;
+}
 interface RegistroAnteriorRef {
     numSerie: string;
     fecha: FechaInput;
@@ -66,6 +71,7 @@ interface FiscalInput {
     esPrimerRegistro: boolean;
     registroAnterior?: RegistroAnteriorRef;
     destinatario?: DestinatarioF1;
+    facturasSustituidas?: FacturaSustituidaRef[];
 }
 interface FiscalData {
     hash: string;
@@ -97,4 +103,4 @@ interface BatchInvoiceResult {
 }
 declare function buildBatchInvoiceRecords(inputs: BatchInvoiceInput[], startingRef: RegistroAnteriorRef | null): Promise<BatchInvoiceResult>;
 
-export { type AnulacionData, type AnulacionInput, type BatchInvoiceInput, type BatchInvoiceResult, type CabeceraInput, type DestinatarioF1, type FechaInput, type FiscalData, type FiscalInput, type IvaLine, type RegistroAnteriorRef, SFLR_NAMESPACE, SF_NAMESPACE, SOAP_MAX_RECORDS, type TipoFacturaAlta, type VerifactuConfig, buildAnulacionRecord, buildBatchInvoiceRecords, buildInvoiceRecord, centsToImporte, wrapForSoap };
+export { type AnulacionData, type AnulacionInput, type BatchInvoiceInput, type BatchInvoiceResult, type CabeceraInput, type DestinatarioF1, type FacturaSustituidaRef, type FechaInput, type FiscalData, type FiscalInput, type IvaLine, type RegistroAnteriorRef, SFLR_NAMESPACE, SF_NAMESPACE, SOAP_MAX_RECORDS, type TipoFacturaAlta, type VerifactuConfig, buildAnulacionRecord, buildBatchInvoiceRecords, buildInvoiceRecord, centsToImporte, wrapForSoap };

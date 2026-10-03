@@ -50,6 +50,12 @@ function escapeXml(s) {
 function destinatariosXml(d) {
   return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon><NIF>${escapeXml(d.nif)}</NIF></IDDestinatario></Destinatarios>`;
 }
+function facturasSustituidasXml(list) {
+  const ids = list.map(
+    (f) => `<IDFacturaSustituida><IDEmisorFactura>${escapeXml(f.idEmisor)}</IDEmisorFactura><NumSerieFactura>${escapeXml(f.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(f.fecha)}</FechaExpedicionFactura></IDFacturaSustituida>`
+  ).join("");
+  return `<FacturasSustituidas>${ids}</FacturasSustituidas>`;
+}
 function encadenamientoXml(prev) {
   if (prev === null) {
     return `<Encadenamiento><PrimerRegistro>S</PrimerRegistro></Encadenamiento>`;
@@ -67,7 +73,8 @@ function sistemaInformaticoXml(s) {
 }
 function buildRegistroAltaXml(i) {
   const destinatarios = i.destinatario ? destinatariosXml(i.destinatario) : "";
-  return `<RegistroAlta xmlns="${SF_NAMESPACE}"><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor><TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura><DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion>` + destinatarios + desgloseXml(i.desgloseIva) + `<CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>` + encadenamientoXml(i.registroAnterior) + sistemaInformaticoXml(i.sistema) + `<FechaHoraHusoGenRegistro>${escapeXml(i.fechaHoraGenRegistro)}</FechaHoraHusoGenRegistro><TipoHuella>01</TipoHuella><Huella>${escapeXml(i.hash)}</Huella></RegistroAlta>`;
+  const sustituidas = i.facturasSustituidas?.length ? facturasSustituidasXml(i.facturasSustituidas) : "";
+  return `<RegistroAlta xmlns="${SF_NAMESPACE}"><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor><TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura>` + sustituidas + `<DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion>` + destinatarios + desgloseXml(i.desgloseIva) + `<CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>` + encadenamientoXml(i.registroAnterior) + sistemaInformaticoXml(i.sistema) + `<FechaHoraHusoGenRegistro>${escapeXml(i.fechaHoraGenRegistro)}</FechaHoraHusoGenRegistro><TipoHuella>01</TipoHuella><Huella>${escapeXml(i.hash)}</Huella></RegistroAlta>`;
 }
 function buildRegistroAnulacionXml(i) {
   return `<RegistroAnulacion xmlns="${SF_NAMESPACE}"><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFacturaAnulada>${escapeXml(i.nif)}</IDEmisorFacturaAnulada><NumSerieFacturaAnulada>${escapeXml(i.numSerieAnulada)}</NumSerieFacturaAnulada><FechaExpedicionFacturaAnulada>${escapeXml(i.fechaAnulada)}</FechaExpedicionFacturaAnulada></IDFactura>` + encadenamientoXml(i.registroAnterior) + sistemaInformaticoXml(i.sistema) + `<FechaHoraHusoGenRegistro>${escapeXml(i.fechaHoraGenRegistro)}</FechaHoraHusoGenRegistro><TipoHuella>01</TipoHuella><Huella>${escapeXml(i.hash)}</Huella></RegistroAnulacion>`;
@@ -201,6 +208,25 @@ async function buildInvoiceRecord(input) {
   if (tipoFactura === "F2" && input.destinatario !== void 0) {
     throw new Error("Invalid input: tipoFactura F2 must not have destinatario");
   }
+  if (tipoFactura === "F3") {
+    if (input.destinatario === void 0) {
+      throw new Error("Invalid input: tipoFactura F3 requires destinatario");
+    }
+    if (!input.facturasSustituidas || input.facturasSustituidas.length === 0) {
+      throw new Error("Invalid input: tipoFactura F3 requires facturasSustituidas (>=1)");
+    }
+    if (input.facturasSustituidas.length > 1e3) {
+      throw new Error("Invalid input: facturasSustituidas max 1000 (XSD maxOccurs)");
+    }
+  } else if (input.facturasSustituidas !== void 0 && input.facturasSustituidas.length > 0) {
+    throw new Error(`Invalid input: facturasSustituidas only allowed with tipoFactura F3 (got ${tipoFactura})`);
+  }
+  const facturasSustituidas = (input.facturasSustituidas ?? []).map((f) => {
+    if (!f.numSerie || f.numSerie.length > 60) {
+      throw new Error(`Invalid facturasSustituidas.numSerie: got '${f.numSerie}' (1-60 chars)`);
+    }
+    return { idEmisor: f.idEmisor ?? input.config.nif, numSerie: f.numSerie, fecha: formatFecha(f.fecha) };
+  });
   const fecha = formatFecha(input.fecha);
   const fechaHoraGenRegistro = resolveFechaHora(input.fechaHoraGenRegistro);
   const hash = await computeHash(
@@ -229,7 +255,8 @@ async function buildInvoiceRecord(input) {
     importeTotal: input.importeTotal,
     registroAnterior: resolveRegistroAnterior(input.config, input.registroAnterior),
     hash,
-    ...input.destinatario !== void 0 ? { destinatario: input.destinatario } : {}
+    ...input.destinatario !== void 0 ? { destinatario: input.destinatario } : {},
+    ...facturasSustituidas.length > 0 ? { facturasSustituidas } : {}
   };
   const qrUrl = buildQrUrl({
     nif: input.config.nif,

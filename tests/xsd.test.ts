@@ -77,6 +77,20 @@ describe.skipIf(!hasXmllint())('validación XSD oficial AEAT', () => {
     expect(validate(xml, 'SuministroInformacion.xsd')).toBe('valid')
   })
 
+  it('RegistroAlta F3 con FacturasSustituidas valida', async () => {
+    const { xml } = await buildInvoiceRecord({
+      ...input,
+      numSerie: 'C-2026-0001',
+      tipoFactura: 'F3',
+      destinatario: { nif: 'B11111111', nombre: 'Cliente SL' },
+      facturasSustituidas: [
+        { numSerie: '105', fecha: '2022-03-04' },
+        { numSerie: '1-1/13066', fecha: '2025-11-20' },
+      ],
+    })
+    expect(validate(xml, 'SuministroInformacion.xsd')).toBe('valid')
+  })
+
   it('RegistroAnulacion valida', async () => {
     const first = await buildInvoiceRecord(input)
     const { xml } = await buildAnulacionRecord({
