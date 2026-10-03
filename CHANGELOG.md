@@ -3,6 +3,23 @@
 Todos los cambios notables de esta librería. Formato basado en [Keep a Changelog](https://keepachangelog.com/es/).
 **Regla fiscal:** cualquier cambio que altere hash, XML o QR generados es BREAKING → major bump y coordinación con todos los consumidores.
 
+## [2.3.0] — 2026-10-03
+
+- Facturas **rectificativas** `tipoFactura: 'R1' | 'R2' | 'R3' | 'R4' | 'R5'` (R1 art. 80.1-80.2 LIVA y
+  error fundado en derecho, R2 art. 80.3, R3 art. 80.4, R4 resto, R5 rectificativa de simplificada).
+  Campos nuevos en `FiscalInput`:
+  - `tipoRectificativa: 'S' | 'I'` — obligatorio con R1..R5, prohibido fuera.
+  - `facturasRectificadas: { numSerie, fecha, idEmisor? }[]` — opcional (<=1000), solo con R1..R5.
+    Genera `FacturasRectificadas/IDFacturaRectificada`.
+  - `importeRectificacion: { baseRectificada, cuotaRectificada, cuotaRecargoRectificado? }` — obligatorio
+    con `S` (base/cuota de la factura original), prohibido con `I`.
+- Destinatario: obligatorio en R1..R4 (como F1/F3), prohibido en R5 (como F2).
+- Orden XSD entre `TipoFactura` y `DescripcionOperacion`: `TipoRectificativa → FacturasRectificadas →
+  FacturasSustituidas → ImporteRectificacion`.
+- **No es breaking**: F1/F2/F3 generan exactamente lo mismo (golden intacto). Solo `TipoFactura` entra en
+  la huella; ni `TipoRectificativa` ni las rectificadas.
+- Tests: `rectificativas.test.ts` + XSD real de R1/I (importes negativos), R4/S y R5.
+
 ## [2.2.0] — 2026-10-03
 
 - `tipoFactura: 'F3'` — «factura emitida en sustitución de facturas simplificadas facturadas y

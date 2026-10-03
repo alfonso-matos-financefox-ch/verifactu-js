@@ -73,10 +73,12 @@ interface FiscalInput {
   fechaHoraGenRegistro?: Date | string   // instante de generación del registro — ENTRA EN EL HASH.
                                          // Date → formateo con huso del runtime; string → verbatim
                                          // (ISO 8601 con offset, se valida). Default: ahora.
-  tipoFactura?: 'F1' | 'F2' | 'F3'       // default: 'F1' si hay destinatario, 'F2' si no.
-                                         // Incoherencias (F1 sin destinatario, F2 con) lanzan.
+  tipoFactura?: 'F1' | 'F2' | 'F3' | 'R1' | 'R2' | 'R3' | 'R4' | 'R5'
+                                         // default: 'F1' si hay destinatario, 'F2' si no.
+                                         // Destinatario obligatorio en F1/F3/R1..R4, prohibido en F2/R5.
                                          // F3 (v2.2.0) = sustitución de simplificadas: exige
                                          // destinatario + facturasSustituidas (>=1, <=1000).
+                                         // R1..R5 (v2.3.0) = rectificativas: exigen tipoRectificativa.
   descripcion: string                    // DescripcionOperacion — obligatorio (v1 lo hardcodeaba)
   desgloseIva: IvaLine[]
   cuotaTotal: string                     // "1.05" — punto y 2 decimales exactos, se valida
@@ -86,6 +88,11 @@ interface FiscalInput {
   destinatario?: DestinatarioF1
   facturasSustituidas?: FacturaSustituidaRef[] // solo F3: { numSerie, fecha, idEmisor? = config.nif }
                                                // NO entra en la huella. Con F1/F2 lanza.
+  tipoRectificativa?: 'S' | 'I'          // solo R1..R5 (obligatorio). S = sustitución, I = diferencias
+  facturasRectificadas?: FacturaRectificadaRef[] // solo R1..R5, opcional: { numSerie, fecha, idEmisor? }
+  importeRectificacion?: ImporteRectificacion    // obligatorio con S, prohibido con I:
+                                         // { baseRectificada, cuotaRectificada, cuotaRecargoRectificado? }
+                                         // = base y cuota de la factura ORIGINAL. Nada de esto entra en la huella.
 }
 
 interface IvaLine {
@@ -198,7 +205,8 @@ UTF-8 → SHA-256 → hex **MAYÚSCULAS**, 64 chars.
 **Invariantes:**
 - `FechaHoraHusoGenRegistro` entra en el hash → el mismo input generado en instantes distintos produce
   huellas distintas. Por eso se acepta como parámetro y se devuelve en `FiscalData` para persistir.
-- `TipoFactura` entra en el hash → F1 y F2 de la misma factura difieren.
+- `TipoFactura` entra en el hash → F1 y F2 de la misma factura difieren. `TipoRectificativa`,
+  `FacturasRectificadas`, `FacturasSustituidas` e `ImporteRectificacion` NO entran.
 - `Huella=` vacío solo en el primer registro de la cadena (`esPrimerRegistro: true`).
 - Los importes deben ser strings con formato fijo (2 decimales): `'12.6'` y `'12.60'` producen huellas
   distintas, por eso la validación de frontera exige un único formato.
@@ -215,10 +223,14 @@ oficial (copia en `tests/schemas/`, validado en CI con xmllint). Secuencia:
 ```
 IDVersion (1.0) → IDFactura{IDEmisorFactura, NumSerieFactura, FechaExpedicionFactura}
   → NombreRazonEmisor → TipoFactura
+  → [TipoRectificativa]                                  ← solo R1..R5 (v2.3.0)
+  → [FacturasRectificadas{IDFacturaRectificada{…}×N}]    ← solo R1..R5, opcional (v2.3.0)
   → [FacturasSustituidas{IDFacturaSustituida{IDEmisorFactura, NumSerieFactura,
                          FechaExpedicionFactura}×N}]   ← solo F3 (v2.2.0)
+  → [ImporteRectificacion{BaseRectificada, CuotaRectificada, [CuotaRecargoRectificado]}]
+                                                         ← solo TipoRectificativa S (v2.3.0)
   → DescripcionOperacion
-  → [Destinatarios]                ← F1 y F3, DESPUÉS de DescripcionOperacion
+  → [Destinatarios]                ← F1, F3 y R1..R4, DESPUÉS de DescripcionOperacion
   → Desglose{DetalleDesglose{ClaveRegimen, CalificacionOperacion, TipoImpositivo,
              BaseImponibleOimporteNoSujeto, CuotaRepercutida}}
   → CuotaTotal → ImporteTotal
@@ -262,10 +274,11 @@ drift de EasyFichi, que quedó en v1.1.0 sin F1 creyendo estar en v1.3.1). **Nun
 |---------|-----------|
 | `hash.test.ts` | **Vectores oficiales AEAT** (alta primer registro, alta encadenada, anulación), trim, campo vacío, salida uppercase |
 | `xml.test.ts` | Secuencia de elementos según XSD, DetalleDesglose con defaults 01/S1, Encadenamiento choice, RegistroAnterior con datos de la factura anterior, anulación, wrapForSoap, escape |
-| `xsd.test.ts` | **Validación real contra los XSD oficiales** (alta F1/F2, anulación, envelope SOAP) con xmllint; se omite si xmllint no está |
+| `xsd.test.ts` | **Validación real contra los XSD oficiales** (alta F1/F2/F3, rectificativas R1-I/R4-S/R5, anulación, envelope SOAP) con xmllint; se omite si xmllint no está |
 | `qr.test.ts` | TIKE-CONT prod/pruebas, orden de parámetros, URL-encoding |
 | `chain.test.ts` | Invariantes de encadenamiento, validación de importes/tipoImpositivo/softwareId/fechaHora, coherencia tipoFactura↔destinatario, centsToImporte |
 | `batch.test.ts` | Encadenado de refs, continuación de cadena, equivalencia batch↔individual, batch vacío |
+| `f3.test.ts` / `rectificativas.test.ts` | Bloques F3 y R1..R5: posición XSD, reglas cruzadas (destinatario, S↔ImporteRectificacion), fuera de la huella |
 | `golden.test.ts` | Golden master F2/F1/anulación/QR con `fechaHoraGenRegistro` fija. Si falla, hay cambio fiscal → major bump |
 
 ---

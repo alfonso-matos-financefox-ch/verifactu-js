@@ -23,6 +23,16 @@ export interface FacturaSustituidaXml {
   fecha: string // DD-MM-YYYY
 }
 
+// Mismo IDFacturaARType que la sustituida: identifica la factura que corrige una rectificativa
+export type FacturaRectificadaXml = FacturaSustituidaXml
+
+// DesgloseRectificacionType: base y cuota de la factura original en las rectificativas por sustitución (S)
+export interface ImporteRectificacionXml {
+  baseRectificada: string
+  cuotaRectificada: string
+  cuotaRecargoRectificado?: string
+}
+
 export interface SistemaInformaticoInput {
   nombreRazon: string
   nif: string
@@ -55,6 +65,9 @@ export interface AltaXmlInput {
   hash: string
   destinatario?: DestinatarioF1
   facturasSustituidas?: FacturaSustituidaXml[] // solo F3
+  tipoRectificativa?: 'S' | 'I' // solo R1..R5
+  facturasRectificadas?: FacturaRectificadaXml[] // solo R1..R5
+  importeRectificacion?: ImporteRectificacionXml // solo TipoRectificativa S
 }
 
 export interface AnulacionXmlInput {
@@ -80,19 +93,48 @@ function destinatariosXml(d: DestinatarioF1): string {
   return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon><NIF>${escapeXml(d.nif)}</NIF></IDDestinatario></Destinatarios>`
 }
 
-// XSD: FacturasSustituidas va entre TipoFactura y DescripcionOperacion (tras FacturasRectificadas)
-function facturasSustituidasXml(list: FacturaSustituidaXml[]): string {
+// IDFacturaARType envuelto en su bloque (FacturasRectificadas / FacturasSustituidas)
+function idFacturaArListXml(bloque: string, item: string, list: FacturaSustituidaXml[]): string {
   const ids = list
     .map(
       f =>
-        `<IDFacturaSustituida>` +
+        `<${item}>` +
         `<IDEmisorFactura>${escapeXml(f.idEmisor)}</IDEmisorFactura>` +
         `<NumSerieFactura>${escapeXml(f.numSerie)}</NumSerieFactura>` +
         `<FechaExpedicionFactura>${escapeXml(f.fecha)}</FechaExpedicionFactura>` +
-        `</IDFacturaSustituida>`,
+        `</${item}>`,
     )
     .join('')
-  return `<FacturasSustituidas>${ids}</FacturasSustituidas>`
+  return `<${bloque}>${ids}</${bloque}>`
+}
+
+function importeRectificacionXml(r: ImporteRectificacionXml): string {
+  const recargo =
+    r.cuotaRecargoRectificado !== undefined
+      ? `<CuotaRecargoRectificado>${escapeXml(r.cuotaRecargoRectificado)}</CuotaRecargoRectificado>`
+      : ''
+  return (
+    `<ImporteRectificacion>` +
+    `<BaseRectificada>${escapeXml(r.baseRectificada)}</BaseRectificada>` +
+    `<CuotaRectificada>${escapeXml(r.cuotaRectificada)}</CuotaRectificada>` +
+    recargo +
+    `</ImporteRectificacion>`
+  )
+}
+
+// XSD, entre TipoFactura y DescripcionOperacion: TipoRectificativa → FacturasRectificadas →
+// FacturasSustituidas → ImporteRectificacion
+function rectificacionYSustitucionXml(i: AltaXmlInput): string {
+  return (
+    (i.tipoRectificativa ? `<TipoRectificativa>${escapeXml(i.tipoRectificativa)}</TipoRectificativa>` : '') +
+    (i.facturasRectificadas?.length
+      ? idFacturaArListXml('FacturasRectificadas', 'IDFacturaRectificada', i.facturasRectificadas)
+      : '') +
+    (i.facturasSustituidas?.length
+      ? idFacturaArListXml('FacturasSustituidas', 'IDFacturaSustituida', i.facturasSustituidas)
+      : '') +
+    (i.importeRectificacion ? importeRectificacionXml(i.importeRectificacion) : '')
+  )
 }
 
 // XSD: Encadenamiento es un choice — PrimerRegistro O RegistroAnterior, nunca ambos
@@ -144,7 +186,6 @@ function sistemaInformaticoXml(s: SistemaInformaticoInput): string {
 
 export function buildRegistroAltaXml(i: AltaXmlInput): string {
   const destinatarios = i.destinatario ? destinatariosXml(i.destinatario) : ''
-  const sustituidas = i.facturasSustituidas?.length ? facturasSustituidasXml(i.facturasSustituidas) : ''
   return (
     `<RegistroAlta xmlns="${SF_NAMESPACE}">` +
     `<IDVersion>1.0</IDVersion>` +
@@ -155,7 +196,7 @@ export function buildRegistroAltaXml(i: AltaXmlInput): string {
     `</IDFactura>` +
     `<NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor>` +
     `<TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura>` +
-    sustituidas +
+    rectificacionYSustitucionXml(i) +
     `<DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion>` +
     destinatarios +
     desgloseXml(i.desgloseIva) +

@@ -83,11 +83,18 @@ function escapeXml(s) {
 function destinatariosXml(d) {
   return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon><NIF>${escapeXml(d.nif)}</NIF></IDDestinatario></Destinatarios>`;
 }
-function facturasSustituidasXml(list) {
+function idFacturaArListXml(bloque, item, list) {
   const ids = list.map(
-    (f) => `<IDFacturaSustituida><IDEmisorFactura>${escapeXml(f.idEmisor)}</IDEmisorFactura><NumSerieFactura>${escapeXml(f.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(f.fecha)}</FechaExpedicionFactura></IDFacturaSustituida>`
+    (f) => `<${item}><IDEmisorFactura>${escapeXml(f.idEmisor)}</IDEmisorFactura><NumSerieFactura>${escapeXml(f.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(f.fecha)}</FechaExpedicionFactura></${item}>`
   ).join("");
-  return `<FacturasSustituidas>${ids}</FacturasSustituidas>`;
+  return `<${bloque}>${ids}</${bloque}>`;
+}
+function importeRectificacionXml(r) {
+  const recargo = r.cuotaRecargoRectificado !== void 0 ? `<CuotaRecargoRectificado>${escapeXml(r.cuotaRecargoRectificado)}</CuotaRecargoRectificado>` : "";
+  return `<ImporteRectificacion><BaseRectificada>${escapeXml(r.baseRectificada)}</BaseRectificada><CuotaRectificada>${escapeXml(r.cuotaRectificada)}</CuotaRectificada>` + recargo + `</ImporteRectificacion>`;
+}
+function rectificacionYSustitucionXml(i) {
+  return (i.tipoRectificativa ? `<TipoRectificativa>${escapeXml(i.tipoRectificativa)}</TipoRectificativa>` : "") + (i.facturasRectificadas?.length ? idFacturaArListXml("FacturasRectificadas", "IDFacturaRectificada", i.facturasRectificadas) : "") + (i.facturasSustituidas?.length ? idFacturaArListXml("FacturasSustituidas", "IDFacturaSustituida", i.facturasSustituidas) : "") + (i.importeRectificacion ? importeRectificacionXml(i.importeRectificacion) : "");
 }
 function encadenamientoXml(prev) {
   if (prev === null) {
@@ -106,8 +113,7 @@ function sistemaInformaticoXml(s) {
 }
 function buildRegistroAltaXml(i) {
   const destinatarios = i.destinatario ? destinatariosXml(i.destinatario) : "";
-  const sustituidas = i.facturasSustituidas?.length ? facturasSustituidasXml(i.facturasSustituidas) : "";
-  return `<RegistroAlta xmlns="${SF_NAMESPACE}"><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor><TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura>` + sustituidas + `<DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion>` + destinatarios + desgloseXml(i.desgloseIva) + `<CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>` + encadenamientoXml(i.registroAnterior) + sistemaInformaticoXml(i.sistema) + `<FechaHoraHusoGenRegistro>${escapeXml(i.fechaHoraGenRegistro)}</FechaHoraHusoGenRegistro><TipoHuella>01</TipoHuella><Huella>${escapeXml(i.hash)}</Huella></RegistroAlta>`;
+  return `<RegistroAlta xmlns="${SF_NAMESPACE}"><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFactura>${escapeXml(i.nif)}</IDEmisorFactura><NumSerieFactura>${escapeXml(i.numSerie)}</NumSerieFactura><FechaExpedicionFactura>${escapeXml(i.fecha)}</FechaExpedicionFactura></IDFactura><NombreRazonEmisor>${escapeXml(i.nombreRazon)}</NombreRazonEmisor><TipoFactura>${escapeXml(i.tipoFactura)}</TipoFactura>` + rectificacionYSustitucionXml(i) + `<DescripcionOperacion>${escapeXml(i.descripcion)}</DescripcionOperacion>` + destinatarios + desgloseXml(i.desgloseIva) + `<CuotaTotal>${escapeXml(i.cuotaTotal)}</CuotaTotal><ImporteTotal>${escapeXml(i.importeTotal)}</ImporteTotal>` + encadenamientoXml(i.registroAnterior) + sistemaInformaticoXml(i.sistema) + `<FechaHoraHusoGenRegistro>${escapeXml(i.fechaHoraGenRegistro)}</FechaHoraHusoGenRegistro><TipoHuella>01</TipoHuella><Huella>${escapeXml(i.hash)}</Huella></RegistroAlta>`;
 }
 function buildRegistroAnulacionXml(i) {
   return `<RegistroAnulacion xmlns="${SF_NAMESPACE}"><IDVersion>1.0</IDVersion><IDFactura><IDEmisorFacturaAnulada>${escapeXml(i.nif)}</IDEmisorFacturaAnulada><NumSerieFacturaAnulada>${escapeXml(i.numSerieAnulada)}</NumSerieFacturaAnulada><FechaExpedicionFacturaAnulada>${escapeXml(i.fechaAnulada)}</FechaExpedicionFacturaAnulada></IDFactura>` + encadenamientoXml(i.registroAnterior) + sistemaInformaticoXml(i.sistema) + `<FechaHoraHusoGenRegistro>${escapeXml(i.fechaHoraGenRegistro)}</FechaHoraHusoGenRegistro><TipoHuella>01</TipoHuella><Huella>${escapeXml(i.hash)}</Huella></RegistroAnulacion>`;
@@ -219,6 +225,54 @@ function sistemaFromConfig(config) {
     numeroInstalacion: config.numeroInstalacion ?? "1"
   };
 }
+var TIPOS_RECTIFICATIVA = /* @__PURE__ */ new Set(["R1", "R2", "R3", "R4", "R5"]);
+var TIPOS_SIN_DESTINATARIO = /* @__PURE__ */ new Set(["F2", "R5"]);
+function resolveRectificacion(input, tipoFactura) {
+  const { tipoRectificativa, facturasRectificadas, importeRectificacion } = input;
+  if (!TIPOS_RECTIFICATIVA.has(tipoFactura)) {
+    if (tipoRectificativa !== void 0) {
+      throw new Error(`Invalid input: tipoRectificativa only allowed with tipoFactura R1-R5 (got ${tipoFactura})`);
+    }
+    if (facturasRectificadas !== void 0 && facturasRectificadas.length > 0) {
+      throw new Error(`Invalid input: facturasRectificadas only allowed with tipoFactura R1-R5 (got ${tipoFactura})`);
+    }
+    if (importeRectificacion !== void 0) {
+      throw new Error(`Invalid input: importeRectificacion only allowed with tipoRectificativa S (got ${tipoFactura})`);
+    }
+    return {};
+  }
+  if (tipoRectificativa !== "S" && tipoRectificativa !== "I") {
+    throw new Error(`Invalid input: tipoFactura ${tipoFactura} requires tipoRectificativa 'S' or 'I'`);
+  }
+  if (tipoRectificativa === "S" && importeRectificacion === void 0) {
+    throw new Error("Invalid input: tipoRectificativa S requires importeRectificacion");
+  }
+  if (tipoRectificativa === "I" && importeRectificacion !== void 0) {
+    throw new Error("Invalid input: importeRectificacion only allowed with tipoRectificativa S");
+  }
+  if (importeRectificacion !== void 0) {
+    assertImporte(importeRectificacion.baseRectificada, "importeRectificacion.baseRectificada");
+    assertImporte(importeRectificacion.cuotaRectificada, "importeRectificacion.cuotaRectificada");
+    if (importeRectificacion.cuotaRecargoRectificado !== void 0) {
+      assertImporte(importeRectificacion.cuotaRecargoRectificado, "importeRectificacion.cuotaRecargoRectificado");
+    }
+  }
+  const list = facturasRectificadas ?? [];
+  if (list.length > 1e3) {
+    throw new Error("Invalid input: facturasRectificadas max 1000 (XSD maxOccurs)");
+  }
+  const rectificadas = list.map((f) => {
+    if (!f.numSerie || f.numSerie.length > 60) {
+      throw new Error(`Invalid facturasRectificadas.numSerie: got '${f.numSerie}' (1-60 chars)`);
+    }
+    return { idEmisor: f.idEmisor ?? input.config.nif, numSerie: f.numSerie, fecha: formatFecha(f.fecha) };
+  });
+  return {
+    tipoRectificativa,
+    ...rectificadas.length > 0 ? { facturasRectificadas: rectificadas } : {},
+    ...importeRectificacion !== void 0 ? { importeRectificacion } : {}
+  };
+}
 async function buildInvoiceRecord(input) {
   assertConfig(input.config);
   assertChain(input.esPrimerRegistro, input.registroAnterior);
@@ -235,16 +289,14 @@ async function buildInvoiceRecord(input) {
     }
   }
   const tipoFactura = input.tipoFactura ?? (input.destinatario ? "F1" : "F2");
-  if (tipoFactura === "F1" && input.destinatario === void 0) {
-    throw new Error("Invalid input: tipoFactura F1 requires destinatario");
-  }
-  if (tipoFactura === "F2" && input.destinatario !== void 0) {
-    throw new Error("Invalid input: tipoFactura F2 must not have destinatario");
+  if (TIPOS_SIN_DESTINATARIO.has(tipoFactura)) {
+    if (input.destinatario !== void 0) {
+      throw new Error(`Invalid input: tipoFactura ${tipoFactura} must not have destinatario`);
+    }
+  } else if (input.destinatario === void 0) {
+    throw new Error(`Invalid input: tipoFactura ${tipoFactura} requires destinatario`);
   }
   if (tipoFactura === "F3") {
-    if (input.destinatario === void 0) {
-      throw new Error("Invalid input: tipoFactura F3 requires destinatario");
-    }
     if (!input.facturasSustituidas || input.facturasSustituidas.length === 0) {
       throw new Error("Invalid input: tipoFactura F3 requires facturasSustituidas (>=1)");
     }
@@ -260,6 +312,7 @@ async function buildInvoiceRecord(input) {
     }
     return { idEmisor: f.idEmisor ?? input.config.nif, numSerie: f.numSerie, fecha: formatFecha(f.fecha) };
   });
+  const rectificacion = resolveRectificacion(input, tipoFactura);
   const fecha = formatFecha(input.fecha);
   const fechaHoraGenRegistro = resolveFechaHora(input.fechaHoraGenRegistro);
   const hash = await computeHash(
@@ -289,7 +342,8 @@ async function buildInvoiceRecord(input) {
     registroAnterior: resolveRegistroAnterior(input.config, input.registroAnterior),
     hash,
     ...input.destinatario !== void 0 ? { destinatario: input.destinatario } : {},
-    ...facturasSustituidas.length > 0 ? { facturasSustituidas } : {}
+    ...facturasSustituidas.length > 0 ? { facturasSustituidas } : {},
+    ...rectificacion
   };
   const qrUrl = buildQrUrl({
     nif: input.config.nif,

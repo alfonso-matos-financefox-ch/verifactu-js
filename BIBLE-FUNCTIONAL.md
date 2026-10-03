@@ -68,6 +68,10 @@ el `lastRef` persistido, y `wrapForSoap()` para construir el payload del envío.
 - **F3** (v2.2.0, factura que sustituye tickets ya declarados — canje de simplificadas): `tipoFactura: 'F3'`
   + `destinatario` + `facturasSustituidas: [{ numSerie, fecha }]` (los tickets). Declararla como F1
   contaría el ingreso dos veces.
+- **Rectificativas R1..R5** (v2.3.0): `tipoFactura: 'R1'..'R5'` + `tipoRectificativa` (`'I'` por diferencias,
+  importes normalmente negativos; `'S'` por sustitución, con `importeRectificacion` = base y cuota de la
+  original) + `facturasRectificadas: [{ numSerie, fecha }]` (opcional para la AEAT, recomendable). R1..R4
+  llevan destinatario; R5 (rectificativa de un ticket) no. **No** emitir una rectificativa como F1 negativa.
 - **Anulaciones**: `buildAnulacionRecord()` consume un eslabón de la misma cadena.
 
 La cadena de hashes de EasyFichi es **independiente por empresa** y de la cadena del TPV — cada
@@ -80,7 +84,8 @@ bifurcar la cadena con emisiones concurrentes.
 ## 4. Alcance y limitaciones
 
 ### Lo que cubre
-- Facturas **F2** (simplificadas), **F1** (B2B con destinatario NIF español) y **F3** (sustitución de simplificadas, v2.2.0).
+- Facturas **F2** (simplificadas), **F1** (B2B con destinatario NIF español), **F3** (sustitución de simplificadas, v2.2.0)
+  y **rectificativas R1..R5** (sustitución `S` o diferencias `I`, v2.3.0).
 - Registros de **anulación** con su fórmula de huella oficial.
 - Cadena de huellas conforme al doc oficial AEAT (vectores oficiales en tests).
 - XML conforme al XSD oficial (validación xmllint en CI) + payload `RegFactuSistemaFacturacion`.

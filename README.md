@@ -4,7 +4,7 @@ Generación de datos fiscales VERI\*FACTU para software de facturación español
 
 Produce hash SHA-256 encadenado + XML `RegistroAlta`/`RegistroAnulacion` conformes al XSD oficial de AEAT + URL QR del servicio de cotejo, para cada factura emitida. Verificado contra los documentos técnicos oficiales de AEAT y sus vectores de test publicados (ver `CHANGELOG.md` v2.0.0).
 
-**Alcance:** facturas simplificadas F2 (tickets de caja), facturas completas F1 (B2B con destinatario) y registros de anulación. Incluye `wrapForSoap()` para el payload de envío `RegFactuSistemaFacturacion`. No incluye firma .p12 ni transporte SOAP — eso es responsabilidad de la capa integradora.
+**Alcance:** facturas simplificadas F2 (tickets de caja), facturas completas F1 (B2B con destinatario), F3 (sustitución de simplificadas), rectificativas R1–R5 y registros de anulación. Incluye `wrapForSoap()` para el payload de envío `RegFactuSistemaFacturacion`. No incluye firma .p12 ni transporte SOAP — eso es responsabilidad de la capa integradora.
 
 ---
 

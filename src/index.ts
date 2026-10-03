@@ -46,13 +46,31 @@ export interface VerifactuConfig {
 
 // F3 = factura emitida en sustitución de facturas simplificadas facturadas y declaradas
 // (canje de tickets). Lleva destinatario y la lista de tickets sustituidos.
-export type TipoFacturaAlta = 'F1' | 'F2' | 'F3'
+// R1..R5 = rectificativas (v2.3.0). R1 art. 80.1-80.2 LIVA y error fundado en derecho, R2 art. 80.3
+// (concurso), R3 art. 80.4 (créditos incobrables), R4 resto, R5 rectificativa de factura simplificada.
+// R1..R4 llevan destinatario; R5 no (como F2).
+export type TipoFacturaRectificativa = 'R1' | 'R2' | 'R3' | 'R4' | 'R5'
+export type TipoFacturaAlta = 'F1' | 'F2' | 'F3' | TipoFacturaRectificativa
+
+// S = por sustitución (la rectificativa trae los importes correctos y exige importeRectificacion);
+// I = por diferencias (trae solo la diferencia, normalmente negativa).
+export type TipoRectificativa = 'S' | 'I'
 
 // Factura simplificada que la F3 sustituye. idEmisor default: config.nif (mismo obligado).
 export interface FacturaSustituidaRef {
   numSerie: string
   fecha: FechaInput
   idEmisor?: string
+}
+
+// Factura que la rectificativa corrige. Misma forma que la sustituida (IDFacturaARType).
+export type FacturaRectificadaRef = FacturaSustituidaRef
+
+// DesgloseRectificacionType: base y cuota de la factura ORIGINAL rectificada (solo tipoRectificativa S)
+export interface ImporteRectificacion {
+  baseRectificada: string
+  cuotaRectificada: string
+  cuotaRecargoRectificado?: string
 }
 
 // Referencia al último registro emitido — los clientes deben persistirla junto al hash:
@@ -80,6 +98,9 @@ export interface FiscalInput {
   registroAnterior?: RegistroAnteriorRef // obligatorio si esPrimerRegistro === false
   destinatario?: DestinatarioF1
   facturasSustituidas?: FacturaSustituidaRef[] // obligatorio (>=1) si tipoFactura === 'F3'; prohibido en otro caso
+  tipoRectificativa?: TipoRectificativa // obligatorio si tipoFactura R1..R5; prohibido en otro caso
+  facturasRectificadas?: FacturaRectificadaRef[] // opcional (<=1000) con R1..R5; prohibido en otro caso
+  importeRectificacion?: ImporteRectificacion // obligatorio si tipoRectificativa === 'S'; prohibido en otro caso
 }
 
 export interface FiscalData {
@@ -220,6 +241,62 @@ function sistemaFromConfig(config: VerifactuConfig): SistemaInformaticoInput {
   }
 }
 
+const TIPOS_RECTIFICATIVA: ReadonlySet<TipoFacturaAlta> = new Set(['R1', 'R2', 'R3', 'R4', 'R5'])
+const TIPOS_SIN_DESTINATARIO: ReadonlySet<TipoFacturaAlta> = new Set(['F2', 'R5'])
+
+// Reglas AEAT del bloque de rectificación: TipoRectificativa obligatorio en R1..R5 y prohibido fuera;
+// FacturasRectificadas solo en R1..R5 (opcional); ImporteRectificacion obligatorio con S y prohibido con I.
+// Nada de esto entra en la huella (solo TipoFactura).
+function resolveRectificacion(
+  input: FiscalInput,
+  tipoFactura: TipoFacturaAlta,
+): Pick<AltaXmlInput, 'tipoRectificativa' | 'facturasRectificadas' | 'importeRectificacion'> {
+  const { tipoRectificativa, facturasRectificadas, importeRectificacion } = input
+  if (!TIPOS_RECTIFICATIVA.has(tipoFactura)) {
+    if (tipoRectificativa !== undefined) {
+      throw new Error(`Invalid input: tipoRectificativa only allowed with tipoFactura R1-R5 (got ${tipoFactura})`)
+    }
+    if (facturasRectificadas !== undefined && facturasRectificadas.length > 0) {
+      throw new Error(`Invalid input: facturasRectificadas only allowed with tipoFactura R1-R5 (got ${tipoFactura})`)
+    }
+    if (importeRectificacion !== undefined) {
+      throw new Error(`Invalid input: importeRectificacion only allowed with tipoRectificativa S (got ${tipoFactura})`)
+    }
+    return {}
+  }
+  if (tipoRectificativa !== 'S' && tipoRectificativa !== 'I') {
+    throw new Error(`Invalid input: tipoFactura ${tipoFactura} requires tipoRectificativa 'S' or 'I'`)
+  }
+  if (tipoRectificativa === 'S' && importeRectificacion === undefined) {
+    throw new Error('Invalid input: tipoRectificativa S requires importeRectificacion')
+  }
+  if (tipoRectificativa === 'I' && importeRectificacion !== undefined) {
+    throw new Error('Invalid input: importeRectificacion only allowed with tipoRectificativa S')
+  }
+  if (importeRectificacion !== undefined) {
+    assertImporte(importeRectificacion.baseRectificada, 'importeRectificacion.baseRectificada')
+    assertImporte(importeRectificacion.cuotaRectificada, 'importeRectificacion.cuotaRectificada')
+    if (importeRectificacion.cuotaRecargoRectificado !== undefined) {
+      assertImporte(importeRectificacion.cuotaRecargoRectificado, 'importeRectificacion.cuotaRecargoRectificado')
+    }
+  }
+  const list = facturasRectificadas ?? []
+  if (list.length > 1000) {
+    throw new Error('Invalid input: facturasRectificadas max 1000 (XSD maxOccurs)')
+  }
+  const rectificadas = list.map(f => {
+    if (!f.numSerie || f.numSerie.length > 60) {
+      throw new Error(`Invalid facturasRectificadas.numSerie: got '${f.numSerie}' (1-60 chars)`)
+    }
+    return { idEmisor: f.idEmisor ?? input.config.nif, numSerie: f.numSerie, fecha: formatFecha(f.fecha) }
+  })
+  return {
+    tipoRectificativa,
+    ...(rectificadas.length > 0 ? { facturasRectificadas: rectificadas } : {}),
+    ...(importeRectificacion !== undefined ? { importeRectificacion } : {}),
+  }
+}
+
 export async function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData> {
   assertConfig(input.config)
   assertChain(input.esPrimerRegistro, input.registroAnterior)
@@ -237,16 +314,15 @@ export async function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData
   }
 
   const tipoFactura = input.tipoFactura ?? (input.destinatario ? 'F1' : 'F2')
-  if (tipoFactura === 'F1' && input.destinatario === undefined) {
-    throw new Error('Invalid input: tipoFactura F1 requires destinatario')
-  }
-  if (tipoFactura === 'F2' && input.destinatario !== undefined) {
-    throw new Error('Invalid input: tipoFactura F2 must not have destinatario')
+  // AEAT: Destinatarios obligatorio en F1, F3 y R1..R4; prohibido en F2 y R5
+  if (TIPOS_SIN_DESTINATARIO.has(tipoFactura)) {
+    if (input.destinatario !== undefined) {
+      throw new Error(`Invalid input: tipoFactura ${tipoFactura} must not have destinatario`)
+    }
+  } else if (input.destinatario === undefined) {
+    throw new Error(`Invalid input: tipoFactura ${tipoFactura} requires destinatario`)
   }
   if (tipoFactura === 'F3') {
-    if (input.destinatario === undefined) {
-      throw new Error('Invalid input: tipoFactura F3 requires destinatario')
-    }
     if (!input.facturasSustituidas || input.facturasSustituidas.length === 0) {
       throw new Error('Invalid input: tipoFactura F3 requires facturasSustituidas (>=1)')
     }
@@ -262,6 +338,7 @@ export async function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData
     }
     return { idEmisor: f.idEmisor ?? input.config.nif, numSerie: f.numSerie, fecha: formatFecha(f.fecha) }
   })
+  const rectificacion = resolveRectificacion(input, tipoFactura)
 
   const fecha = formatFecha(input.fecha)
   const fechaHoraGenRegistro = resolveFechaHora(input.fechaHoraGenRegistro)
@@ -295,6 +372,7 @@ export async function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData
     hash,
     ...(input.destinatario !== undefined ? { destinatario: input.destinatario } : {}),
     ...(facturasSustituidas.length > 0 ? { facturasSustituidas } : {}),
+    ...rectificacion,
   }
 
   const qrUrl = buildQrUrl({

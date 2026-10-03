@@ -91,6 +91,45 @@ describe.skipIf(!hasXmllint())('validación XSD oficial AEAT', () => {
     expect(validate(xml, 'SuministroInformacion.xsd')).toBe('valid')
   })
 
+  it('RegistroAlta R1 por diferencias (I) con FacturasRectificadas e importes negativos valida', async () => {
+    const { xml } = await buildInvoiceRecord({
+      ...input,
+      numSerie: 'R-2026-0001',
+      tipoFactura: 'R1',
+      tipoRectificativa: 'I',
+      destinatario: { nif: 'B11111111', nombre: 'Cliente SL' },
+      facturasRectificadas: [{ numSerie: 'F-2026-0100', fecha: '2026-09-15' }],
+      desgloseIva: [{ tipoImpositivo: '10', baseImponible: '-11.45', cuotaRepercutida: '-1.15' }],
+      cuotaTotal: '-1.15',
+      importeTotal: '-12.60',
+    })
+    expect(validate(xml, 'SuministroInformacion.xsd')).toBe('valid')
+  })
+
+  it('RegistroAlta R4 por sustitución (S) con ImporteRectificacion valida', async () => {
+    const { xml } = await buildInvoiceRecord({
+      ...input,
+      numSerie: 'R-2026-0002',
+      tipoFactura: 'R4',
+      tipoRectificativa: 'S',
+      destinatario: { nif: 'B11111111', nombre: 'Cliente SL' },
+      facturasRectificadas: [{ numSerie: 'F-2026-0100', fecha: '2026-09-15' }],
+      importeRectificacion: { baseRectificada: '20.00', cuotaRectificada: '2.00', cuotaRecargoRectificado: '0.00' },
+    })
+    expect(validate(xml, 'SuministroInformacion.xsd')).toBe('valid')
+  })
+
+  it('RegistroAlta R5 (rectificativa de simplificada) sin destinatario valida', async () => {
+    const { xml } = await buildInvoiceRecord({
+      ...input,
+      numSerie: 'R-2026-0003',
+      tipoFactura: 'R5',
+      tipoRectificativa: 'I',
+      facturasRectificadas: [{ numSerie: 'A-2026-000001', fecha: '2026-06-15' }],
+    })
+    expect(validate(xml, 'SuministroInformacion.xsd')).toBe('valid')
+  })
+
   it('RegistroAnulacion valida', async () => {
     const first = await buildInvoiceRecord(input)
     const { xml } = await buildAnulacionRecord({

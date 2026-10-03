@@ -46,11 +46,19 @@ interface VerifactuConfig {
     numeroInstalacion?: string;
     testMode?: boolean;
 }
-type TipoFacturaAlta = 'F1' | 'F2' | 'F3';
+type TipoFacturaRectificativa = 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
+type TipoFacturaAlta = 'F1' | 'F2' | 'F3' | TipoFacturaRectificativa;
+type TipoRectificativa = 'S' | 'I';
 interface FacturaSustituidaRef {
     numSerie: string;
     fecha: FechaInput;
     idEmisor?: string;
+}
+type FacturaRectificadaRef = FacturaSustituidaRef;
+interface ImporteRectificacion {
+    baseRectificada: string;
+    cuotaRectificada: string;
+    cuotaRecargoRectificado?: string;
 }
 interface RegistroAnteriorRef {
     numSerie: string;
@@ -72,6 +80,9 @@ interface FiscalInput {
     registroAnterior?: RegistroAnteriorRef;
     destinatario?: DestinatarioF1;
     facturasSustituidas?: FacturaSustituidaRef[];
+    tipoRectificativa?: TipoRectificativa;
+    facturasRectificadas?: FacturaRectificadaRef[];
+    importeRectificacion?: ImporteRectificacion;
 }
 interface FiscalData {
     hash: string;
@@ -103,4 +114,4 @@ interface BatchInvoiceResult {
 }
 declare function buildBatchInvoiceRecords(inputs: BatchInvoiceInput[], startingRef: RegistroAnteriorRef | null): Promise<BatchInvoiceResult>;
 
-export { type AnulacionData, type AnulacionInput, type BatchInvoiceInput, type BatchInvoiceResult, type CabeceraInput, type DestinatarioF1, type FacturaSustituidaRef, type FechaInput, type FiscalData, type FiscalInput, type IvaLine, type RegistroAnteriorRef, SFLR_NAMESPACE, SF_NAMESPACE, SOAP_MAX_RECORDS, type TipoFacturaAlta, type VerifactuConfig, buildAnulacionRecord, buildBatchInvoiceRecords, buildInvoiceRecord, centsToImporte, wrapForSoap };
+export { type AnulacionData, type AnulacionInput, type BatchInvoiceInput, type BatchInvoiceResult, type CabeceraInput, type DestinatarioF1, type FacturaRectificadaRef, type FacturaSustituidaRef, type FechaInput, type FiscalData, type FiscalInput, type ImporteRectificacion, type IvaLine, type RegistroAnteriorRef, SFLR_NAMESPACE, SF_NAMESPACE, SOAP_MAX_RECORDS, type TipoFacturaAlta, type TipoFacturaRectificativa, type TipoRectificativa, type VerifactuConfig, buildAnulacionRecord, buildBatchInvoiceRecords, buildInvoiceRecord, centsToImporte, wrapForSoap };
