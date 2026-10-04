@@ -64,7 +64,10 @@ el `lastRef` persistido, y `wrapForSoap()` para construir el payload del envío.
 
 - **F2** (consumidor final): sin `destinatario`.
 - **F1** (B2B): pasar `destinatario: { nif, nombre }`; la librería incluye `<Destinatarios>` y usa
-  `TipoFactura=F1` en el hash. `descripcion` es obligatoria (cada cliente pasa la suya).
+  `TipoFactura=F1` en el hash. Cliente **sin NIF español** (v2.4.0): `destinatario: { nombre, idOtro:
+  { codigoPais, idType, id } }` — p. ej. G2 Travel Ltd (Hong Kong) `HK`/`04`/n.º de registro, cliente francés
+  con NIF-IVA `FR`/`02`/`FR…`, francés solo con SIRET `FR`/`04` o `06`. El IVA no cambia (restauración prestada
+  en España); solo cambia la identificación. La huella y el QR no dependen del destinatario. `descripcion` es obligatoria (cada cliente pasa la suya).
 - **F3** (v2.2.0, factura que sustituye tickets ya declarados — canje de simplificadas): `tipoFactura: 'F3'`
   + `destinatario` + `facturasSustituidas: [{ numSerie, fecha }]` (los tickets). Declararla como F1
   contaría el ingreso dos veces.
@@ -84,7 +87,7 @@ bifurcar la cadena con emisiones concurrentes.
 ## 4. Alcance y limitaciones
 
 ### Lo que cubre
-- Facturas **F2** (simplificadas), **F1** (B2B con destinatario NIF español), **F3** (sustitución de simplificadas, v2.2.0)
+- Facturas **F2** (simplificadas), **F1** (B2B con destinatario NIF español o extranjero vía `IDOtro`, v2.4.0), **F3** (sustitución de simplificadas, v2.2.0)
   y **rectificativas R1..R5** (sustitución `S` o diferencias `I`, v2.3.0).
 - Registros de **anulación** con su fórmula de huella oficial.
 - Cadena de huellas conforme al doc oficial AEAT (vectores oficiales en tests).
@@ -93,9 +96,8 @@ bifurcar la cadena con emisiones concurrentes.
 
 ### Lo que NO cubre
 - Firma XML y comunicación SOAP — responsabilidad del integrador.
-- Rectificativas (R1–R5) — el XSD las contempla; previstas para v2.1 (`tipoFactura` + bloques
-  `TipoRectificativa`/`FacturasRectificadas`/`ImporteRectificacion`).
-- Destinatarios sin NIF español (`IDOtro` — pasaporte, VAT intracomunitario).
+- Comprobar que un NIF-IVA (`IDOtro` 02) está dado de alta en VIES/censo (la AEAT lo exige; requiere
+  conexión). Sí se valida su estructura por Estado miembro. Irlanda del Norte (`XI`) no está soportada.
 - Registros de evento (obligatorios solo para sistemas NO Verifactu).
 - Validación de NIF/CIF — la librería confía en los datos del integrador (sí valida formatos:
   importes, huella, ISO 8601, longitud de `softwareId`).

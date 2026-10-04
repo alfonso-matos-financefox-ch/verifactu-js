@@ -3,6 +3,44 @@
 Todos los cambios notables de esta librería. Formato basado en [Keep a Changelog](https://keepachangelog.com/es/).
 **Regla fiscal:** cualquier cambio que altere hash, XML o QR generados es BREAKING → major bump y coordinación con todos los consumidores.
 
+## [2.4.0] — 2026-10-04
+
+- **Destinatarios sin NIF español** (bloque XSD `IDOtro`). `destinatario` acepta ahora
+  `{ nombre, nif }` (como siempre) **o** `{ nombre, idOtro: { codigoPais, idType, id } }`, exactamente uno.
+  `idType`: `'02'` NIF-IVA, `'03'` pasaporte, `'04'` documento oficial del país de residencia,
+  `'05'` certificado de residencia, `'06'` otro documento probatorio, `'07'` no censado.
+  Genera `<IDDestinatario><NombreRazon/><IDOtro><CodigoPais/><IDType/><ID/></IDOtro></IDDestinatario>`.
+  Vale para F1, F3 y R1..R4 (y por tanto en lotes); las anulaciones no llevan destinatario.
+- Tipos nuevos exportados: `Destinatario` (unión), `DestinatarioNif`, `DestinatarioIdOtro`, `IDOtro`, `IDTypeOtro`,
+  `DestinatarioError` (con `code`), `DestinatarioErrorCode` y `CODIGOS_PAIS_XSD`. `DestinatarioF1` se mantiene
+  (alias de `DestinatarioNif`, deprecado).
+- Validación (lanza `DestinatarioError`, `message` empieza por `Invalid destinatario:`):
+  - `NIF_E_IDOTRO` (vienen los dos) / `SIN_IDENTIFICACION` (ninguno).
+  - Con IDOtro: `NOMBRE` (1-120), `CODIGO_PAIS` (lista `CountryType2` del XSD; Grecia es `GR`), `ID_TYPE` (02..07),
+    `ID` (1-20).
+  - `COMBINACION` — reglas de rechazo de la AEAT («Validaciones» v1.2.2, ap. 13 y nota (1); `errores.properties`):
+    `CodigoPais=ES` solo con 03 o 07 (1234/1126); 07 exige `ES` (1126) y un NIF de persona física válido (1131);
+    02 solo para Estados miembros distintos de España, con el ID empezando por el código del país (1122; Grecia `EL`)
+    y la estructura de NIF-IVA de la nota (1), solo mayúsculas.
+  - `TIPO_FACTURA` — R3 solo admite IDOtro 07 (1191); R2 solo 02 o 07 (1192).
+  - La rama NIF no se valida más que antes (sin cambios para quien ya la usa).
+- **No es breaking**: el caso NIF genera exactamente el mismo XML (golden intacto). Huella y QR **no dependen
+  del destinatario**: misma huella y QR con NIF o con IDOtro (test).
+- Tests: `idotro.test.ts` (validaciones, huella/QR, lote, lista de países = XSD) y XSD real de IDOtro 02 FR,
+  04 HK, 06 FR (SIRET), 07 ES, F3 y R4/S con IDOtro y envelope SOAP. `scripts/test-e2e.mjs` añade una F1 con
+  IDOtro (solo generación: la librería no envía; el envío a preproducción AEAT lo hace el integrador con certificado).
+- Fuera de alcance (no se puede validar sin conexión): que el NIF-IVA esté identificado en VIES/censo (la AEAT lo
+  exige para 02), Irlanda del Norte (`XI`, no está en `CountryType2`) y el formato del ID para 03-06.
+
+### Pendiente para el consumidor (fichaje_app / EasyFichi — punto E-B4 de `plan-unificacion-facturacion-2026-10-04.md`)
+
+- Subir la dependencia de `#v2.2.0` a `#v2.4.0` (de paso coge las rectificativas R1-R5 de la v2.3.0).
+- Guardar en el contacto `codigoPais`, `idType` y número de documento para los clientes sin NIF español
+  (G2 Travel Ltd: `HK` + `04` + n.º de registro mercantil; clientes franceses con NIF-IVA: `FR` + `02` +
+  `FR…` (11 caracteres tras el prefijo); franceses solo con SIRET: `FR` + `04` o `06` + SIRET).
+- Decidir NIF o IDOtro al construir el registro (`{ nombre, nif }` o `{ nombre, idOtro }`, nunca ambos) y
+  capturar `DestinatarioError` para mostrar el motivo (`code`) en el formulario del contacto.
+
 ## [2.3.0] — 2026-10-03
 
 - Facturas **rectificativas** `tipoFactura: 'R1' | 'R2' | 'R3' | 'R4' | 'R5'` (R1 art. 80.1-80.2 LIVA y

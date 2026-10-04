@@ -48,7 +48,8 @@ function escapeXml(s) {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 }
 function destinatariosXml(d) {
-  return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon><NIF>${escapeXml(d.nif)}</NIF></IDDestinatario></Destinatarios>`;
+  const id = d.idOtro !== void 0 ? `<IDOtro><CodigoPais>${escapeXml(d.idOtro.codigoPais)}</CodigoPais><IDType>${escapeXml(d.idOtro.idType)}</IDType><ID>${escapeXml(d.idOtro.id)}</ID></IDOtro>` : `<NIF>${escapeXml(d.nif)}</NIF>`;
+  return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon>${id}</IDDestinatario></Destinatarios>`;
 }
 function idFacturaArListXml(bloque, item, list) {
   const ids = list.map(
@@ -96,6 +97,256 @@ function wrapForSoap(records, cabecera) {
   const registros = records.map((r) => `<sfLR:RegistroFactura>${r}</sfLR:RegistroFactura>`).join("");
   return `<sfLR:RegFactuSistemaFacturacion xmlns:sfLR="${SFLR_NAMESPACE}" xmlns:sf="${SF_NAMESPACE}"><sfLR:Cabecera><sf:ObligadoEmision><sf:NombreRazon>${escapeXml(cabecera.obligado.nombreRazon)}</sf:NombreRazon><sf:NIF>${escapeXml(cabecera.obligado.nif)}</sf:NIF></sf:ObligadoEmision></sfLR:Cabecera>` + registros + `</sfLR:RegFactuSistemaFacturacion>`;
 }
+
+// src/paises.ts
+var CODIGOS_PAIS_XSD = /* @__PURE__ */ new Set([
+  "AD",
+  "AE",
+  "AF",
+  "AG",
+  "AI",
+  "AL",
+  "AM",
+  "AO",
+  "AQ",
+  "AR",
+  "AS",
+  "AT",
+  "AU",
+  "AW",
+  "AZ",
+  "BA",
+  "BB",
+  "BD",
+  "BE",
+  "BF",
+  "BG",
+  "BH",
+  "BI",
+  "BJ",
+  "BM",
+  "BN",
+  "BO",
+  "BQ",
+  "BR",
+  "BS",
+  "BT",
+  "BV",
+  "BW",
+  "BY",
+  "BZ",
+  "CA",
+  "CC",
+  "CD",
+  "CF",
+  "CG",
+  "CH",
+  "CI",
+  "CK",
+  "CL",
+  "CM",
+  "CN",
+  "CO",
+  "CR",
+  "CU",
+  "CV",
+  "CW",
+  "CX",
+  "CY",
+  "CZ",
+  "DE",
+  "DJ",
+  "DK",
+  "DM",
+  "DO",
+  "DZ",
+  "EC",
+  "EE",
+  "EG",
+  "ER",
+  "ES",
+  "ET",
+  "FI",
+  "FJ",
+  "FK",
+  "FM",
+  "FO",
+  "FR",
+  "GA",
+  "GB",
+  "GD",
+  "GE",
+  "GG",
+  "GH",
+  "GI",
+  "GL",
+  "GM",
+  "GN",
+  "GQ",
+  "GR",
+  "GS",
+  "GT",
+  "GU",
+  "GW",
+  "GY",
+  "HK",
+  "HM",
+  "HN",
+  "HR",
+  "HT",
+  "HU",
+  "ID",
+  "IE",
+  "IL",
+  "IM",
+  "IN",
+  "IO",
+  "IQ",
+  "IR",
+  "IS",
+  "IT",
+  "JE",
+  "JM",
+  "JO",
+  "JP",
+  "KE",
+  "KG",
+  "KH",
+  "KI",
+  "KM",
+  "KN",
+  "KP",
+  "KR",
+  "KW",
+  "KY",
+  "KZ",
+  "LA",
+  "LB",
+  "LC",
+  "LI",
+  "LK",
+  "LR",
+  "LS",
+  "LT",
+  "LU",
+  "LV",
+  "LY",
+  "MA",
+  "MC",
+  "MD",
+  "ME",
+  "MG",
+  "MH",
+  "MK",
+  "ML",
+  "MM",
+  "MN",
+  "MO",
+  "MP",
+  "MR",
+  "MS",
+  "MT",
+  "MU",
+  "MV",
+  "MW",
+  "MX",
+  "MY",
+  "MZ",
+  "NA",
+  "NC",
+  "NE",
+  "NF",
+  "NG",
+  "NI",
+  "NL",
+  "NO",
+  "NP",
+  "NR",
+  "NU",
+  "NZ",
+  "OM",
+  "PA",
+  "PE",
+  "PF",
+  "PG",
+  "PH",
+  "PK",
+  "PL",
+  "PM",
+  "PN",
+  "PR",
+  "PS",
+  "PT",
+  "PW",
+  "PY",
+  "QA",
+  "QU",
+  "RE",
+  "RO",
+  "RS",
+  "RU",
+  "RW",
+  "SA",
+  "SB",
+  "SC",
+  "SD",
+  "SE",
+  "SG",
+  "SH",
+  "SI",
+  "SK",
+  "SL",
+  "SM",
+  "SN",
+  "SO",
+  "SR",
+  "SS",
+  "ST",
+  "SV",
+  "SX",
+  "SY",
+  "SZ",
+  "TC",
+  "TD",
+  "TF",
+  "TG",
+  "TH",
+  "TJ",
+  "TK",
+  "TL",
+  "TM",
+  "TN",
+  "TO",
+  "TR",
+  "TT",
+  "TV",
+  "TW",
+  "TZ",
+  "UA",
+  "UG",
+  "UM",
+  "US",
+  "UY",
+  "UZ",
+  "VA",
+  "VC",
+  "VE",
+  "VG",
+  "VI",
+  "VN",
+  "VU",
+  "WF",
+  "WS",
+  "XB",
+  "XG",
+  "XN",
+  "XU",
+  "YE",
+  "YT",
+  "ZA",
+  "ZM",
+  "ZW"
+]);
 
 // src/index.ts
 function centsToImporte(cents) {
@@ -192,6 +443,115 @@ function sistemaFromConfig(config) {
     numeroInstalacion: config.numeroInstalacion ?? "1"
   };
 }
+var DestinatarioError = class extends Error {
+  code;
+  constructor(code, message) {
+    super(`Invalid destinatario: ${message}`);
+    this.name = "DestinatarioError";
+    this.code = code;
+  }
+};
+var ID_TYPES_OTRO = /* @__PURE__ */ new Set(["02", "03", "04", "05", "06", "07"]);
+function assertDestinatario(d, tipoFactura) {
+  const raw = d;
+  if (raw.nif !== void 0 && raw.idOtro !== void 0) {
+    throw new DestinatarioError("NIF_E_IDOTRO", "pass either nif or idOtro, not both");
+  }
+  if (raw.nif === void 0 && raw.idOtro === void 0) {
+    throw new DestinatarioError("SIN_IDENTIFICACION", "requires nif (Spanish NIF) or idOtro");
+  }
+  if (d.idOtro === void 0) return;
+  if (typeof d.nombre !== "string" || d.nombre.trim() === "" || d.nombre.length > 120) {
+    throw new DestinatarioError("NOMBRE", `nombre must be 1-120 chars (TextMax120Type), got '${String(d.nombre)}'`);
+  }
+  const { codigoPais, idType, id } = d.idOtro;
+  if (typeof codigoPais !== "string" || !CODIGOS_PAIS_XSD.has(codigoPais)) {
+    throw new DestinatarioError(
+      "CODIGO_PAIS",
+      `idOtro.codigoPais must be an ISO 3166-1 alpha-2 code from the AEAT CountryType2 list, got '${String(codigoPais)}'`
+    );
+  }
+  if (typeof idType !== "string" || !ID_TYPES_OTRO.has(idType)) {
+    throw new DestinatarioError("ID_TYPE", `idOtro.idType must be '02'..'07', got '${String(idType)}'`);
+  }
+  if (typeof id !== "string" || id.trim() === "" || id.length > 20) {
+    throw new DestinatarioError("ID", `idOtro.id must be 1-20 chars (TextMax20Type), got '${String(id)}'`);
+  }
+  assertCombinacionIdOtro(d.idOtro, tipoFactura);
+}
+var NIF_IVA_UE = {
+  DE: { prefijo: "DE", cuerpo: /^\d{9}$/ },
+  AT: { prefijo: "AT", cuerpo: /^[A-Z0-9]{9}$/ },
+  BE: { prefijo: "BE", cuerpo: /^\d{10}$/ },
+  CY: { prefijo: "CY", cuerpo: /^[A-Z0-9]{9}$/ },
+  CZ: { prefijo: "CZ", cuerpo: /^\d{8,10}$/ },
+  HR: { prefijo: "HR", cuerpo: /^\d{11}$/ },
+  DK: { prefijo: "DK", cuerpo: /^\d{8}$/ },
+  SK: { prefijo: "SK", cuerpo: /^\d{10}$/ },
+  SI: { prefijo: "SI", cuerpo: /^\d{8}$/ },
+  EE: { prefijo: "EE", cuerpo: /^\d{9}$/ },
+  FI: { prefijo: "FI", cuerpo: /^\d{8}$/ },
+  FR: { prefijo: "FR", cuerpo: /^[A-Z0-9]{11}$/ },
+  GR: { prefijo: "EL", cuerpo: /^\d{9}$/ },
+  NL: { prefijo: "NL", cuerpo: /^[A-Z0-9]{12}$/ },
+  HU: { prefijo: "HU", cuerpo: /^\d{8}$/ },
+  IT: { prefijo: "IT", cuerpo: /^\d{11}$/ },
+  IE: { prefijo: "IE", cuerpo: /^[A-Z0-9]{8,9}$/ },
+  LV: { prefijo: "LV", cuerpo: /^\d{11}$/ },
+  LT: { prefijo: "LT", cuerpo: /^(\d{9}|\d{12})$/ },
+  LU: { prefijo: "LU", cuerpo: /^\d{8}$/ },
+  MT: { prefijo: "MT", cuerpo: /^\d{8}$/ },
+  PL: { prefijo: "PL", cuerpo: /^\d{10}$/ },
+  PT: { prefijo: "PT", cuerpo: /^\d{9}$/ },
+  SE: { prefijo: "SE", cuerpo: /^\d{12}$/ },
+  BG: { prefijo: "BG", cuerpo: /^\d{9,10}$/ },
+  RO: { prefijo: "RO", cuerpo: /^[1-9]\d{1,9}$/ }
+};
+var LETRAS_NIF = "TRWAGMYFPDXBNJZSQVHLCKE";
+function esNifPersonaFisica(id) {
+  const m = /^([0-9XYZ])(\d{7})([A-Z])$/.exec(id);
+  if (!m) return false;
+  const [, primero, cifras, letra] = m;
+  const nie = "XYZ".indexOf(primero);
+  return LETRAS_NIF[Number((nie >= 0 ? String(nie) : primero) + cifras) % 23] === letra;
+}
+function assertCombinacionIdOtro(o, tipoFactura) {
+  if (o.codigoPais === "ES" && o.idType !== "03" && o.idType !== "07") {
+    throw new DestinatarioError(
+      "COMBINACION",
+      `codigoPais ES only allows idType '03' (pasaporte) or '07' (no censado), got '${o.idType}' (AEAT 1234); a Spanish taxpayer goes with nif`
+    );
+  }
+  if (o.idType === "07") {
+    if (o.codigoPais !== "ES") {
+      throw new DestinatarioError("COMBINACION", `idType '07' (no censado) requires codigoPais ES, got '${o.codigoPais}' (AEAT 1126)`);
+    }
+    if (!esNifPersonaFisica(o.id)) {
+      throw new DestinatarioError("COMBINACION", `idType '07' requires id to be a valid NIF of a natural person, got '${o.id}' (AEAT 1131)`);
+    }
+  }
+  if (o.idType === "02") {
+    const reglas = NIF_IVA_UE[o.codigoPais];
+    if (reglas === void 0) {
+      throw new DestinatarioError(
+        "COMBINACION",
+        `idType '02' (NIF-IVA) only for EU member states other than ES, got codigoPais '${o.codigoPais}'; use '04' or '06' for non-EU customers`
+      );
+    }
+    if (!o.id.startsWith(reglas.prefijo) || !reglas.cuerpo.test(o.id.slice(2))) {
+      throw new DestinatarioError(
+        "COMBINACION",
+        `idType '02' requires an uppercase ${o.codigoPais} VAT number starting with '${reglas.prefijo}', got '${o.id}' (AEAT 1122 / nota (1))`
+      );
+    }
+  }
+  if (tipoFactura === "R3" && o.idType !== "07") {
+    throw new DestinatarioError("TIPO_FACTURA", `tipoFactura R3 only allows nif or idType '07', got '${o.idType}' (AEAT 1191)`);
+  }
+  if (tipoFactura === "R2" && o.idType !== "02" && o.idType !== "07") {
+    throw new DestinatarioError("TIPO_FACTURA", `tipoFactura R2 only allows nif or idType '02'/'07', got '${o.idType}' (AEAT 1192)`);
+  }
+}
 var TIPOS_RECTIFICATIVA = /* @__PURE__ */ new Set(["R1", "R2", "R3", "R4", "R5"]);
 var TIPOS_SIN_DESTINATARIO = /* @__PURE__ */ new Set(["F2", "R5"]);
 function resolveRectificacion(input, tipoFactura) {
@@ -262,6 +622,8 @@ async function buildInvoiceRecord(input) {
     }
   } else if (input.destinatario === void 0) {
     throw new Error(`Invalid input: tipoFactura ${tipoFactura} requires destinatario`);
+  } else {
+    assertDestinatario(input.destinatario, tipoFactura);
   }
   if (tipoFactura === "F3") {
     if (!input.facturasSustituidas || input.facturasSustituidas.length === 0) {
@@ -361,6 +723,8 @@ async function buildBatchInvoiceRecords(inputs, startingRef) {
   return { results, lastRef: currentRef };
 }
 export {
+  CODIGOS_PAIS_XSD,
+  DestinatarioError,
   SFLR_NAMESPACE,
   SF_NAMESPACE,
   SOAP_MAX_RECORDS,

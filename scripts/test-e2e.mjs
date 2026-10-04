@@ -49,3 +49,20 @@ console.log(
     { obligado: { nombreRazon: config.nombreRazon, nif: config.nif } },
   ).slice(0, 400) + '…',
 )
+
+// v2.4.0 — F1 a un cliente sin NIF español (bloque IDOtro), encadenada tras el lote anterior
+console.log('\n▶ F1 a destinatario extranjero (IDOtro 04 HK), encadenada tras el lote...\n')
+const { results: [idOtro] } = await buildBatchInvoiceRecords(
+  [
+    {
+      ...inputs[0],
+      numSerie: 'A-2026-000006',
+      fechaHoraGenRegistro: '2026-01-01T15:00:00+01:00',
+      descripcion: 'Servei de restauració — grup',
+      destinatario: { nombre: 'G2 Travel Ltd', idOtro: { codigoPais: 'HK', idType: '04', id: '2345678' } },
+    },
+  ],
+  lastRef,
+)
+console.log(`      hash:  ${idOtro.hash}`)
+console.log(`      ${idOtro.xml.match(/<Destinatarios>.*<\/Destinatarios>/)[0]}`)

@@ -26,7 +26,7 @@ Toda la API se exporta desde `src/index.ts` (único entry point).
 ### Instalación
 
 ```bash
-npm install github:alfonso-matos-financefox-ch/verifactu-js#v2.0.0
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v2.4.0
 ```
 
 ```ts
@@ -51,9 +51,16 @@ interface VerifactuConfig {
   testMode?: boolean       // default false — true apunta el QR a prewww2.aeat.es
 }
 
-interface DestinatarioF1 {
-  nif: string
-  nombre: string
+// v2.4.0 — exactamente uno: NIF español o IDOtro (choice NIF | IDOtro de PersonaFisicaJuridicaType)
+type Destinatario =
+  | { nombre: string; nif: string }                     // DestinatarioNif (= DestinatarioF1, deprecado)
+  | { nombre: string; idOtro: IDOtro }                  // DestinatarioIdOtro
+interface IDOtro {
+  codigoPais: string   // CountryType2 del XSD (CODIGOS_PAIS_XSD); Grecia = 'GR'
+  idType: '02' | '03' | '04' | '05' | '06' | '07'
+                       // 02 NIF-IVA, 03 pasaporte, 04 doc. país residencia, 05 cert. residencia,
+                       // 06 otro probatorio, 07 no censado
+  id: string           // 1-20 caracteres
 }
 
 // Referencia al ÚLTIMO registro emitido. El cliente debe persistir los tres campos:
@@ -85,7 +92,7 @@ interface FiscalInput {
   importeTotal: string
   esPrimerRegistro: boolean
   registroAnterior?: RegistroAnteriorRef // obligatorio si esPrimerRegistro === false
-  destinatario?: DestinatarioF1
+  destinatario?: Destinatario           // validado: lanza DestinatarioError (ver §9)
   facturasSustituidas?: FacturaSustituidaRef[] // solo F3: { numSerie, fecha, idEmisor? = config.nif }
                                                // NO entra en la huella. Con F1/F2 lanza.
   tipoRectificativa?: 'S' | 'I'          // solo R1..R5 (obligatorio). S = sustitución, I = diferencias
@@ -157,6 +164,32 @@ conforme a `SuministroLR.xsd`. El envelope `soapenv:Envelope/Body` y la firma si
 interface CabeceraInput { obligado: { nombreRazon: string; nif: string } }
 ```
 
+### `DestinatarioError` (v2.4.0)
+
+`class DestinatarioError extends Error { code: DestinatarioErrorCode }`; `message` empieza por
+`Invalid destinatario:`. Códigos: `NIF_E_IDOTRO`, `SIN_IDENTIFICACION`, `NOMBRE`, `CODIGO_PAIS`, `ID_TYPE`,
+`ID`, `COMBINACION`, `TIPO_FACTURA`. Se lanza desde `buildInvoiceRecord` (y por tanto desde el lote) cuando el
+tipo de factura lleva destinatario. La rama NIF solo comprueba que no venga también `idOtro`.
+
+Reglas de IDOtro (errores de **rechazo** del registro en la AEAT; fuente: «Sistemas Informáticos de
+Facturación y Sistemas VERI*FACTU – Validaciones» v1.2.2, 08/04/2026, ap. 13 «Agrupación Destinatarios» y
+nota (1); textos de `errores.properties` de la AEAT):
+
+| Regla | Código AEAT | `code` |
+|-------|-------------|--------|
+| `CodigoPais=ES` solo con IDType 03 o 07 | 1234 / 1126 | `COMBINACION` |
+| IDType 07 exige `CodigoPais=ES` | 1126 | `COMBINACION` |
+| IDType 07: el ID ha de ser NIF de persona física (DNI/NIE con letra de control) | 1131 | `COMBINACION` |
+| IDType 02: estructura de NIF-IVA de un Estado miembro (tabla nota (1), solo mayúsculas); España no está | ap. 13 | `COMBINACION` |
+| IDType 02: `CodigoPais` = dos primeros caracteres del ID (Grecia: `GR` ↔ `EL`) | 1122 | `COMBINACION` |
+| R3 solo admite NIF o IDType 07 | 1191 | `TIPO_FACTURA` |
+| R2 solo admite NIF o IDType 02/07 | 1192 | `TIPO_FACTURA` |
+| IDType 02 solo con F1/F3/R1..R4 | 1156 | (implícito: F2/R5 no admiten destinatario) |
+
+No validado (requiere conexión o no está especificado): alta del NIF-IVA en VIES/censo, formato del ID en
+03-06, Irlanda del Norte (`XI`, ausente de `CountryType2`). La AEAT no exige `CodigoPais` con IDType 02, pero la
+librería lo pide siempre (sirve para comprobar el prefijo).
+
 ### Helpers
 
 ```ts
@@ -172,6 +205,7 @@ centsToImporte(cents: number): string  // 1260 → '12.60', -5 → '-0.05'; lanz
 src/
   index.ts   — API pública, orquestación, validaciones de frontera
   hash.ts    — buildAltaHashInput() / buildAnulacionHashInput() + computeHash()
+  paises.ts  — CODIGOS_PAIS_XSD (CountryType2 del XSD; un test comprueba que coincide)
   xml.ts     — buildRegistroAltaXml() / buildRegistroAnulacionXml() / wrapForSoap()
   qr.ts      — buildQrUrl()
 ```
@@ -205,7 +239,8 @@ UTF-8 → SHA-256 → hex **MAYÚSCULAS**, 64 chars.
 **Invariantes:**
 - `FechaHoraHusoGenRegistro` entra en el hash → el mismo input generado en instantes distintos produce
   huellas distintas. Por eso se acepta como parámetro y se devuelve en `FiscalData` para persistir.
-- `TipoFactura` entra en el hash → F1 y F2 de la misma factura difieren. `TipoRectificativa`,
+- `TipoFactura` entra en el hash → F1 y F2 de la misma factura difieren. El destinatario (NIF o IDOtro)
+  NO entra en la huella ni en el QR. `TipoRectificativa`,
   `FacturasRectificadas`, `FacturasSustituidas` e `ImporteRectificacion` NO entran.
 - `Huella=` vacío solo en el primer registro de la cadena (`esPrimerRegistro: true`).
 - Los importes deben ser strings con formato fijo (2 decimales): `'12.6'` y `'12.60'` producen huellas
@@ -230,7 +265,8 @@ IDVersion (1.0) → IDFactura{IDEmisorFactura, NumSerieFactura, FechaExpedicionF
   → [ImporteRectificacion{BaseRectificada, CuotaRectificada, [CuotaRecargoRectificado]}]
                                                          ← solo TipoRectificativa S (v2.3.0)
   → DescripcionOperacion
-  → [Destinatarios]                ← F1, F3 y R1..R4, DESPUÉS de DescripcionOperacion
+  → [Destinatarios{IDDestinatario{NombreRazon, NIF | IDOtro{CodigoPais, IDType, ID}}}]
+                                   ← F1, F3 y R1..R4, DESPUÉS de DescripcionOperacion (IDOtro v2.4.0)
   → Desglose{DetalleDesglose{ClaveRegimen, CalificacionOperacion, TipoImpositivo,
              BaseImponibleOimporteNoSujeto, CuotaRepercutida}}
   → CuotaTotal → ImporteTotal
@@ -274,10 +310,11 @@ drift de EasyFichi, que quedó en v1.1.0 sin F1 creyendo estar en v1.3.1). **Nun
 |---------|-----------|
 | `hash.test.ts` | **Vectores oficiales AEAT** (alta primer registro, alta encadenada, anulación), trim, campo vacío, salida uppercase |
 | `xml.test.ts` | Secuencia de elementos según XSD, DetalleDesglose con defaults 01/S1, Encadenamiento choice, RegistroAnterior con datos de la factura anterior, anulación, wrapForSoap, escape |
-| `xsd.test.ts` | **Validación real contra los XSD oficiales** (alta F1/F2/F3, rectificativas R1-I/R4-S/R5, anulación, envelope SOAP) con xmllint; se omite si xmllint no está |
+| `xsd.test.ts` | **Validación real contra los XSD oficiales** (alta F1/F2/F3, rectificativas R1-I/R4-S/R5, IDOtro 02/04/06/07, anulación, envelope SOAP) con xmllint; se omite si xmllint no está |
 | `qr.test.ts` | TIKE-CONT prod/pruebas, orden de parámetros, URL-encoding |
 | `chain.test.ts` | Invariantes de encadenamiento, validación de importes/tipoImpositivo/softwareId/fechaHora, coherencia tipoFactura↔destinatario, centsToImporte |
 | `batch.test.ts` | Encadenado de refs, continuación de cadena, equivalencia batch↔individual, batch vacío |
+| `idotro.test.ts` | Destinatario IDOtro (v2.4.0): XML, reglas AEAT y `DestinatarioError`, huella/QR independientes del destinatario, lote, `CODIGOS_PAIS_XSD` = XSD |
 | `f3.test.ts` / `rectificativas.test.ts` | Bloques F3 y R1..R5: posición XSD, reglas cruzadas (destinatario, S↔ImporteRectificacion), fuera de la huella |
 | `golden.test.ts` | Golden master F2/F1/anulación/QR con `fechaHoraGenRegistro` fija. Si falla, hay cambio fiscal → major bump |
 

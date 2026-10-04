@@ -11,10 +11,36 @@ export interface IvaLine {
   calificacionOperacion?: string // default 'S1' — sujeta y no exenta, sin inversión
 }
 
-export interface DestinatarioF1 {
-  nif: string
+// Destinatario con NIF español (PersonaFisicaJuridicaType, rama NIF del choice)
+export interface DestinatarioNif {
   nombre: string
+  nif: string
+  idOtro?: never
 }
+
+// IDType del XSD (PersonaFisicaJuridicaIDTypeType): 02 NIF-IVA, 03 pasaporte, 04 documento oficial del
+// país de residencia, 05 certificado de residencia, 06 otro documento probatorio, 07 no censado
+export type IDTypeOtro = '02' | '03' | '04' | '05' | '06' | '07'
+
+// IDOtroType: identificación de un destinatario sin NIF español
+export interface IDOtro {
+  codigoPais: string // ISO 3166-1 alfa-2 (CountryType2 del XSD)
+  idType: IDTypeOtro
+  id: string // máx. 20 caracteres (TextMax20Type)
+}
+
+// Destinatario sin NIF español (rama IDOtro del choice)
+export interface DestinatarioIdOtro {
+  nombre: string
+  idOtro: IDOtro
+  nif?: never
+}
+
+// Exactamente uno de los dos: NIF o IDOtro (choice del XSD)
+export type Destinatario = DestinatarioNif | DestinatarioIdOtro
+
+/** @deprecated desde v2.4.0 — usar `Destinatario` (admite también IDOtro). Se mantiene por compatibilidad. */
+export type DestinatarioF1 = DestinatarioNif
 
 // IDFacturaARType del XSD: identifica una factura sustituida (F3) por el emisor, n.º y fecha
 export interface FacturaSustituidaXml {
@@ -63,7 +89,7 @@ export interface AltaXmlInput {
   importeTotal: string
   registroAnterior: RegistroAnteriorXml | null // null = primer registro de la cadena
   hash: string
-  destinatario?: DestinatarioF1
+  destinatario?: Destinatario
   facturasSustituidas?: FacturaSustituidaXml[] // solo F3
   tipoRectificativa?: 'S' | 'I' // solo R1..R5
   facturasRectificadas?: FacturaRectificadaXml[] // solo R1..R5
@@ -89,8 +115,17 @@ function escapeXml(s: string): string {
     .replaceAll("'", '&apos;')
 }
 
-function destinatariosXml(d: DestinatarioF1): string {
-  return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon><NIF>${escapeXml(d.nif)}</NIF></IDDestinatario></Destinatarios>`
+// XSD PersonaFisicaJuridicaType: NombreRazon → choice(NIF | IDOtro{CodigoPais, IDType, ID})
+function destinatariosXml(d: Destinatario): string {
+  const id =
+    d.idOtro !== undefined
+      ? `<IDOtro>` +
+        `<CodigoPais>${escapeXml(d.idOtro.codigoPais)}</CodigoPais>` +
+        `<IDType>${escapeXml(d.idOtro.idType)}</IDType>` +
+        `<ID>${escapeXml(d.idOtro.id)}</ID>` +
+        `</IDOtro>`
+      : `<NIF>${escapeXml(d.nif)}</NIF>`
+  return `<Destinatarios><IDDestinatario><NombreRazon>${escapeXml(d.nombre)}</NombreRazon>${id}</IDDestinatario></Destinatarios>`
 }
 
 // IDFacturaARType envuelto en su bloque (FacturasRectificadas / FacturasSustituidas)

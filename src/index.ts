@@ -5,16 +5,32 @@ import {
 } from './hash.js'
 import { buildQrUrl } from './qr.js'
 import { buildRegistroAltaXml, buildRegistroAnulacionXml, wrapForSoap } from './xml.js'
+import { CODIGOS_PAIS_XSD } from './paises.js'
 import type {
   AltaXmlInput,
   CabeceraInput,
+  Destinatario,
   DestinatarioF1,
+  DestinatarioIdOtro,
+  DestinatarioNif,
+  IDOtro,
+  IDTypeOtro,
   IvaLine,
   RegistroAnteriorXml,
   SistemaInformaticoInput,
 } from './xml.js'
 
-export type { CabeceraInput, DestinatarioF1, IvaLine }
+export type {
+  CabeceraInput,
+  Destinatario,
+  DestinatarioF1,
+  DestinatarioIdOtro,
+  DestinatarioNif,
+  IDOtro,
+  IDTypeOtro,
+  IvaLine,
+}
+export { CODIGOS_PAIS_XSD } from './paises.js'
 export { wrapForSoap, SOAP_MAX_RECORDS, SF_NAMESPACE, SFLR_NAMESPACE } from './xml.js'
 
 export interface VerifactuConfig {
@@ -96,7 +112,7 @@ export interface FiscalInput {
   importeTotal: string
   esPrimerRegistro: boolean
   registroAnterior?: RegistroAnteriorRef // obligatorio si esPrimerRegistro === false
-  destinatario?: DestinatarioF1
+  destinatario?: Destinatario // { nombre, nif } o { nombre, idOtro } — exactamente uno (v2.4.0)
   facturasSustituidas?: FacturaSustituidaRef[] // obligatorio (>=1) si tipoFactura === 'F3'; prohibido en otro caso
   tipoRectificativa?: TipoRectificativa // obligatorio si tipoFactura R1..R5; prohibido en otro caso
   facturasRectificadas?: FacturaRectificadaRef[] // opcional (<=1000) con R1..R5; prohibido en otro caso
@@ -241,6 +257,147 @@ function sistemaFromConfig(config: VerifactuConfig): SistemaInformaticoInput {
   }
 }
 
+export type DestinatarioErrorCode =
+  | 'NIF_E_IDOTRO' // vienen nif e idOtro a la vez
+  | 'SIN_IDENTIFICACION' // no viene ni nif ni idOtro
+  | 'NOMBRE' // NombreRazon vacío o > 120 caracteres
+  | 'CODIGO_PAIS' // codigoPais fuera de CountryType2 del XSD
+  | 'ID_TYPE' // idType fuera de 02..07
+  | 'ID' // id vacío o > 20 caracteres
+  | 'COMBINACION' // combinación codigoPais/idType/id que la AEAT rechaza (1122, 1126/1234, 1131, NIF-IVA)
+  | 'TIPO_FACTURA' // idType no admitido para ese tipoFactura (1191 R3, 1192 R2)
+
+// Error tipado de validación del destinatario: `code` permite al consumidor distinguir el motivo
+export class DestinatarioError extends Error {
+  readonly code: DestinatarioErrorCode
+  constructor(code: DestinatarioErrorCode, message: string) {
+    super(`Invalid destinatario: ${message}`)
+    this.name = 'DestinatarioError'
+    this.code = code
+  }
+}
+
+const ID_TYPES_OTRO: ReadonlySet<string> = new Set(['02', '03', '04', '05', '06', '07'])
+
+// Valida la forma del destinatario (choice NIF | IDOtro del XSD + reglas AEAT de IDOtro).
+// La rama NIF se deja como en <= 2.3.0 (sin validar NIF ni nombre) para no romper a los consumidores.
+function assertDestinatario(d: Destinatario, tipoFactura: TipoFacturaAlta): void {
+  const raw = d as { nif?: unknown; idOtro?: unknown }
+  if (raw.nif !== undefined && raw.idOtro !== undefined) {
+    throw new DestinatarioError('NIF_E_IDOTRO', 'pass either nif or idOtro, not both')
+  }
+  if (raw.nif === undefined && raw.idOtro === undefined) {
+    throw new DestinatarioError('SIN_IDENTIFICACION', 'requires nif (Spanish NIF) or idOtro')
+  }
+  if (d.idOtro === undefined) return
+  if (typeof d.nombre !== 'string' || d.nombre.trim() === '' || d.nombre.length > 120) {
+    throw new DestinatarioError('NOMBRE', `nombre must be 1-120 chars (TextMax120Type), got '${String(d.nombre)}'`)
+  }
+  const { codigoPais, idType, id } = d.idOtro
+  if (typeof codigoPais !== 'string' || !CODIGOS_PAIS_XSD.has(codigoPais)) {
+    throw new DestinatarioError(
+      'CODIGO_PAIS',
+      `idOtro.codigoPais must be an ISO 3166-1 alpha-2 code from the AEAT CountryType2 list, got '${String(codigoPais)}'`,
+    )
+  }
+  if (typeof idType !== 'string' || !ID_TYPES_OTRO.has(idType)) {
+    throw new DestinatarioError('ID_TYPE', `idOtro.idType must be '02'..'07', got '${String(idType)}'`)
+  }
+  if (typeof id !== 'string' || id.trim() === '' || id.length > 20) {
+    throw new DestinatarioError('ID', `idOtro.id must be 1-20 chars (TextMax20Type), got '${String(id)}'`)
+  }
+  assertCombinacionIdOtro(d.idOtro, tipoFactura)
+}
+
+// Estructura del NIF-IVA por Estado miembro (AEAT, «Validaciones» v1.2.2, nota (1)): prefijo + cuerpo.
+// Clave = CodigoPais del XSD; Grecia usa CodigoPais GR pero su NIF-IVA empieza por EL. España no está:
+// un destinatario español va con NIF. Reino Unido / Irlanda del Norte (GB/XI) no se admiten aquí.
+const NIF_IVA_UE: Readonly<Record<string, { prefijo: string; cuerpo: RegExp }>> = {
+  DE: { prefijo: 'DE', cuerpo: /^\d{9}$/ },
+  AT: { prefijo: 'AT', cuerpo: /^[A-Z0-9]{9}$/ },
+  BE: { prefijo: 'BE', cuerpo: /^\d{10}$/ },
+  CY: { prefijo: 'CY', cuerpo: /^[A-Z0-9]{9}$/ },
+  CZ: { prefijo: 'CZ', cuerpo: /^\d{8,10}$/ },
+  HR: { prefijo: 'HR', cuerpo: /^\d{11}$/ },
+  DK: { prefijo: 'DK', cuerpo: /^\d{8}$/ },
+  SK: { prefijo: 'SK', cuerpo: /^\d{10}$/ },
+  SI: { prefijo: 'SI', cuerpo: /^\d{8}$/ },
+  EE: { prefijo: 'EE', cuerpo: /^\d{9}$/ },
+  FI: { prefijo: 'FI', cuerpo: /^\d{8}$/ },
+  FR: { prefijo: 'FR', cuerpo: /^[A-Z0-9]{11}$/ },
+  GR: { prefijo: 'EL', cuerpo: /^\d{9}$/ },
+  NL: { prefijo: 'NL', cuerpo: /^[A-Z0-9]{12}$/ },
+  HU: { prefijo: 'HU', cuerpo: /^\d{8}$/ },
+  IT: { prefijo: 'IT', cuerpo: /^\d{11}$/ },
+  IE: { prefijo: 'IE', cuerpo: /^[A-Z0-9]{8,9}$/ },
+  LV: { prefijo: 'LV', cuerpo: /^\d{11}$/ },
+  LT: { prefijo: 'LT', cuerpo: /^(\d{9}|\d{12})$/ },
+  LU: { prefijo: 'LU', cuerpo: /^\d{8}$/ },
+  MT: { prefijo: 'MT', cuerpo: /^\d{8}$/ },
+  PL: { prefijo: 'PL', cuerpo: /^\d{10}$/ },
+  PT: { prefijo: 'PT', cuerpo: /^\d{9}$/ },
+  SE: { prefijo: 'SE', cuerpo: /^\d{12}$/ },
+  BG: { prefijo: 'BG', cuerpo: /^\d{9,10}$/ },
+  RO: { prefijo: 'RO', cuerpo: /^[1-9]\d{1,9}$/ },
+}
+
+const LETRAS_NIF = 'TRWAGMYFPDXBNJZSQVHLCKE'
+
+// NIF de persona física: DNI (8 cifras + letra) o NIE (X/Y/Z + 7 cifras + letra), con letra de control
+function esNifPersonaFisica(id: string): boolean {
+  const m = /^([0-9XYZ])(\d{7})([A-Z])$/.exec(id)
+  if (!m) return false
+  const [, primero, cifras, letra] = m
+  const nie = 'XYZ'.indexOf(primero!) // NIE: X→0, Y→1, Z→2
+  return LETRAS_NIF[Number((nie >= 0 ? String(nie) : primero!) + cifras) % 23] === letra
+}
+
+// Validaciones AEAT del bloque IDOtro en Destinatarios (errores de rechazo del registro). Fuentes:
+// «Sistemas Informáticos de Facturación y Sistemas VERI*FACTU – Validaciones» v1.2.2, ap. 13
+// (Agrupación Destinatarios) y nota (1); códigos y textos de errores.properties de la AEAT.
+function assertCombinacionIdOtro(o: IDOtro, tipoFactura: TipoFacturaAlta): void {
+  // 1126/1234: con CodigoPais ES solo IDType 03 o 07; con IDType 07, CodigoPais ES
+  if (o.codigoPais === 'ES' && o.idType !== '03' && o.idType !== '07') {
+    throw new DestinatarioError(
+      'COMBINACION',
+      `codigoPais ES only allows idType '03' (pasaporte) or '07' (no censado), got '${o.idType}' (AEAT 1234); a Spanish taxpayer goes with nif`,
+    )
+  }
+  if (o.idType === '07') {
+    if (o.codigoPais !== 'ES') {
+      throw new DestinatarioError('COMBINACION', `idType '07' (no censado) requires codigoPais ES, got '${o.codigoPais}' (AEAT 1126)`)
+    }
+    // 1131: con 07 el ID ha de ser el NIF de una persona física
+    if (!esNifPersonaFisica(o.id)) {
+      throw new DestinatarioError('COMBINACION', `idType '07' requires id to be a valid NIF of a natural person, got '${o.id}' (AEAT 1131)`)
+    }
+  }
+  if (o.idType === '02') {
+    // Ap. 13: el identificador debe ajustarse a la estructura de NIF-IVA de algún Estado miembro;
+    // 1122: CodigoPais debe coincidir con los dos primeros caracteres del ID
+    const reglas = NIF_IVA_UE[o.codigoPais]
+    if (reglas === undefined) {
+      throw new DestinatarioError(
+        'COMBINACION',
+        `idType '02' (NIF-IVA) only for EU member states other than ES, got codigoPais '${o.codigoPais}'; use '04' or '06' for non-EU customers`,
+      )
+    }
+    if (!o.id.startsWith(reglas.prefijo) || !reglas.cuerpo.test(o.id.slice(2))) {
+      throw new DestinatarioError(
+        'COMBINACION',
+        `idType '02' requires an uppercase ${o.codigoPais} VAT number starting with '${reglas.prefijo}', got '${o.id}' (AEAT 1122 / nota (1))`,
+      )
+    }
+  }
+  // 1191 / 1192: restricciones de IDOtro en R3 y R2
+  if (tipoFactura === 'R3' && o.idType !== '07') {
+    throw new DestinatarioError('TIPO_FACTURA', `tipoFactura R3 only allows nif or idType '07', got '${o.idType}' (AEAT 1191)`)
+  }
+  if (tipoFactura === 'R2' && o.idType !== '02' && o.idType !== '07') {
+    throw new DestinatarioError('TIPO_FACTURA', `tipoFactura R2 only allows nif or idType '02'/'07', got '${o.idType}' (AEAT 1192)`)
+  }
+}
+
 const TIPOS_RECTIFICATIVA: ReadonlySet<TipoFacturaAlta> = new Set(['R1', 'R2', 'R3', 'R4', 'R5'])
 const TIPOS_SIN_DESTINATARIO: ReadonlySet<TipoFacturaAlta> = new Set(['F2', 'R5'])
 
@@ -321,6 +478,8 @@ export async function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData
     }
   } else if (input.destinatario === undefined) {
     throw new Error(`Invalid input: tipoFactura ${tipoFactura} requires destinatario`)
+  } else {
+    assertDestinatario(input.destinatario, tipoFactura)
   }
   if (tipoFactura === 'F3') {
     if (!input.facturasSustituidas || input.facturasSustituidas.length === 0) {

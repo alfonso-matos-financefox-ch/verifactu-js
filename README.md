@@ -4,7 +4,7 @@ Generación de datos fiscales VERI\*FACTU para software de facturación español
 
 Produce hash SHA-256 encadenado + XML `RegistroAlta`/`RegistroAnulacion` conformes al XSD oficial de AEAT + URL QR del servicio de cotejo, para cada factura emitida. Verificado contra los documentos técnicos oficiales de AEAT y sus vectores de test publicados (ver `CHANGELOG.md` v2.0.0).
 
-**Alcance:** facturas simplificadas F2 (tickets de caja), facturas completas F1 (B2B con destinatario), F3 (sustitución de simplificadas), rectificativas R1–R5 y registros de anulación. Incluye `wrapForSoap()` para el payload de envío `RegFactuSistemaFacturacion`. No incluye firma .p12 ni transporte SOAP — eso es responsabilidad de la capa integradora.
+**Alcance:** facturas simplificadas F2 (tickets de caja), facturas completas F1 (B2B con destinatario con NIF español o extranjero vía `IDOtro`), F3 (sustitución de simplificadas), rectificativas R1–R5 y registros de anulación. Incluye `wrapForSoap()` para el payload de envío `RegFactuSistemaFacturacion`. No incluye firma .p12 ni transporte SOAP — eso es responsabilidad de la capa integradora.
 
 ---
 
@@ -26,7 +26,7 @@ Produce hash SHA-256 encadenado + XML `RegistroAlta`/`RegistroAnulacion` conform
 Siempre por tag git explícito (librería fiscal — nunca `#main` ni rangos semver):
 
 ```bash
-npm install github:alfonso-matos-financefox-ch/verifactu-js#v2.0.0
+npm install github:alfonso-matos-financefox-ch/verifactu-js#v2.4.0
 ```
 
 ## Uso
@@ -62,6 +62,18 @@ const { hash, xml, qrUrl, fechaHoraGenRegistro } = await buildInvoiceRecord({
 })
 ```
 
+### Destinatario sin NIF español (v2.4.0)
+
+```ts
+// Exactamente uno: { nombre, nif } o { nombre, idOtro }
+destinatario: { nombre: 'G2 Travel Ltd', idOtro: { codigoPais: 'HK', idType: '04', id: '2345678' } }
+destinatario: { nombre: 'Client SARL', idOtro: { codigoPais: 'FR', idType: '02', id: 'FR40303265045' } } // NIF-IVA UE
+```
+
+`idType`: 02 NIF-IVA (solo UE), 03 pasaporte, 04 documento del país de residencia, 05 certificado de
+residencia, 06 otro documento probatorio, 07 no censado (solo `ES`). Una combinación que la AEAT rechazaría
+lanza `DestinatarioError` con su `code`. La huella y el QR no dependen del destinatario.
+
 También: `buildBatchInvoiceRecords(inputs, startingRef)` para encadenar N facturas,
 `buildAnulacionRecord()` para anulaciones y `wrapForSoap(records, cabecera)` para el payload de envío.
 
@@ -74,7 +86,7 @@ También: `buildBatchInvoiceRecords(inputs, startingRef)` para encadenar N factu
 ## Tests
 
 ```bash
-npm run test    # 54 tests — incluye los vectores oficiales AEAT y validación XSD con xmllint
+npm run test    # 100 tests — incluye los vectores oficiales AEAT y validación XSD con xmllint
 ```
 
 ## Licencia

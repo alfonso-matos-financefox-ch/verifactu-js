@@ -7,10 +7,25 @@ interface IvaLine {
     claveRegimen?: string;
     calificacionOperacion?: string;
 }
-interface DestinatarioF1 {
-    nif: string;
+interface DestinatarioNif {
     nombre: string;
+    nif: string;
+    idOtro?: never;
 }
+type IDTypeOtro = '02' | '03' | '04' | '05' | '06' | '07';
+interface IDOtro {
+    codigoPais: string;
+    idType: IDTypeOtro;
+    id: string;
+}
+interface DestinatarioIdOtro {
+    nombre: string;
+    idOtro: IDOtro;
+    nif?: never;
+}
+type Destinatario = DestinatarioNif | DestinatarioIdOtro;
+/** @deprecated desde v2.4.0 — usar `Destinatario` (admite también IDOtro). Se mantiene por compatibilidad. */
+type DestinatarioF1 = DestinatarioNif;
 interface CabeceraInput {
     obligado: {
         nombreRazon: string;
@@ -19,6 +34,8 @@ interface CabeceraInput {
 }
 declare const SOAP_MAX_RECORDS = 1000;
 declare function wrapForSoap(records: string[], cabecera: CabeceraInput): string;
+
+declare const CODIGOS_PAIS_XSD: ReadonlySet<string>;
 
 interface VerifactuConfig {
     nif: string;
@@ -78,7 +95,7 @@ interface FiscalInput {
     importeTotal: string;
     esPrimerRegistro: boolean;
     registroAnterior?: RegistroAnteriorRef;
-    destinatario?: DestinatarioF1;
+    destinatario?: Destinatario;
     facturasSustituidas?: FacturaSustituidaRef[];
     tipoRectificativa?: TipoRectificativa;
     facturasRectificadas?: FacturaRectificadaRef[];
@@ -105,6 +122,11 @@ interface AnulacionData {
 }
 declare function centsToImporte(cents: number): string;
 type FechaInput = Date | string;
+type DestinatarioErrorCode = 'NIF_E_IDOTRO' | 'SIN_IDENTIFICACION' | 'NOMBRE' | 'CODIGO_PAIS' | 'ID_TYPE' | 'ID' | 'COMBINACION' | 'TIPO_FACTURA';
+declare class DestinatarioError extends Error {
+    readonly code: DestinatarioErrorCode;
+    constructor(code: DestinatarioErrorCode, message: string);
+}
 declare function buildInvoiceRecord(input: FiscalInput): Promise<FiscalData>;
 declare function buildAnulacionRecord(input: AnulacionInput): Promise<AnulacionData>;
 type BatchInvoiceInput = Omit<FiscalInput, 'esPrimerRegistro' | 'registroAnterior'>;
@@ -114,4 +136,4 @@ interface BatchInvoiceResult {
 }
 declare function buildBatchInvoiceRecords(inputs: BatchInvoiceInput[], startingRef: RegistroAnteriorRef | null): Promise<BatchInvoiceResult>;
 
-export { type AnulacionData, type AnulacionInput, type BatchInvoiceInput, type BatchInvoiceResult, type CabeceraInput, type DestinatarioF1, type FacturaRectificadaRef, type FacturaSustituidaRef, type FechaInput, type FiscalData, type FiscalInput, type ImporteRectificacion, type IvaLine, type RegistroAnteriorRef, SFLR_NAMESPACE, SF_NAMESPACE, SOAP_MAX_RECORDS, type TipoFacturaAlta, type TipoFacturaRectificativa, type TipoRectificativa, type VerifactuConfig, buildAnulacionRecord, buildBatchInvoiceRecords, buildInvoiceRecord, centsToImporte, wrapForSoap };
+export { type AnulacionData, type AnulacionInput, type BatchInvoiceInput, type BatchInvoiceResult, CODIGOS_PAIS_XSD, type CabeceraInput, type Destinatario, DestinatarioError, type DestinatarioErrorCode, type DestinatarioF1, type DestinatarioIdOtro, type DestinatarioNif, type FacturaRectificadaRef, type FacturaSustituidaRef, type FechaInput, type FiscalData, type FiscalInput, type IDOtro, type IDTypeOtro, type ImporteRectificacion, type IvaLine, type RegistroAnteriorRef, SFLR_NAMESPACE, SF_NAMESPACE, SOAP_MAX_RECORDS, type TipoFacturaAlta, type TipoFacturaRectificativa, type TipoRectificativa, type VerifactuConfig, buildAnulacionRecord, buildBatchInvoiceRecords, buildInvoiceRecord, centsToImporte, wrapForSoap };

@@ -155,4 +155,44 @@ describe.skipIf(!hasXmllint())('validación XSD oficial AEAT', () => {
     })
     expect(validate(soap, 'SuministroLR.xsd')).toBe('valid')
   })
+
+  // v2.4.0 — destinatarios sin NIF español (IDOtro)
+  const idOtroCasos = [
+    { caso: '02 FR intracomunitario (NIF-IVA)', idOtro: { codigoPais: 'FR', idType: '02', id: 'FR40303265045' } },
+    { caso: '04 HK (registro mercantil)', idOtro: { codigoPais: 'HK', idType: '04', id: '2345678' } },
+    { caso: '06 FR solo SIRET (otro probatorio)', idOtro: { codigoPais: 'FR', idType: '06', id: '73282932000074' } },
+    { caso: '07 ES no censado', idOtro: { codigoPais: 'ES', idType: '07', id: '12345678Z' } },
+  ] as const
+
+  for (const { caso, idOtro } of idOtroCasos) {
+    it(`RegistroAlta F1 con IDOtro ${caso} valida`, async () => {
+      const { xml } = await buildInvoiceRecord({ ...input, destinatario: { nombre: 'Client étranger', idOtro } })
+      expect(xml).toContain(
+        `<IDOtro><CodigoPais>${idOtro.codigoPais}</CodigoPais><IDType>${idOtro.idType}</IDType><ID>${idOtro.id}</ID></IDOtro>`,
+      )
+      expect(validate(xml, 'SuministroInformacion.xsd')).toBe('valid')
+    })
+  }
+
+  it('RegistroAlta F3 y R4/S con IDOtro validan, y en el envelope SOAP', async () => {
+    const destinatario = { nombre: 'G2 Travel Ltd', idOtro: { codigoPais: 'HK', idType: '04', id: '2345678' } } as const
+    const f3 = await buildInvoiceRecord({
+      ...input,
+      tipoFactura: 'F3',
+      destinatario,
+      facturasSustituidas: [{ numSerie: 'T-2026-000009', fecha: '2026-06-14' }],
+    })
+    const r4 = await buildInvoiceRecord({
+      ...input,
+      numSerie: 'R-2026-000001',
+      tipoFactura: 'R4',
+      tipoRectificativa: 'S',
+      importeRectificacion: { baseRectificada: '11.45', cuotaRectificada: '1.15' },
+      destinatario,
+    })
+    expect(validate(f3.xml, 'SuministroInformacion.xsd')).toBe('valid')
+    expect(validate(r4.xml, 'SuministroInformacion.xsd')).toBe('valid')
+    const soap = wrapForSoap([f3.xml, r4.xml], { obligado: { nombreRazon: 'La Pallaresa', nif: 'B62215389' } })
+    expect(validate(soap, 'SuministroLR.xsd')).toBe('valid')
+  })
 })
